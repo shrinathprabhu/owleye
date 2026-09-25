@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationDir": "dist/types",
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "lib": ["DOM", "ES2020"],
+    "noEmit": false,
+    "outDir": "dist/types",
+    "rootDir": "src",
+    "stripInternal": true
+  },
+  "include": ["src/**/*.ts"]
+}

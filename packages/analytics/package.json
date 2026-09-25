@@ -1,0 +1,82 @@
+{
+  "name": "@owleye/analytics",
+  "version": "1.0.0",
+  "description": "Privacy-preserving, cookie-free analytics SDK for OwlEye.",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://owleye.dev/docs/sdk/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shrinathprabhu/owleye.git",
+    "directory": "packages/analytics"
+  },
+  "keywords": [
+    "analytics",
+    "cookie-free",
+    "privacy",
+    "hosted-analytics",
+    "web-analytics"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "sideEffects": [
+    "./dist/owleye.analytics.iife.js",
+    "./dist/owleye.rules.iife.js",
+    "./dist/owleye.performance.iife.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./rules": {
+      "types": "./dist/types/rules.d.ts",
+      "import": "./dist/rules.js",
+      "default": "./dist/rules.js"
+    },
+    "./performance": {
+      "types": "./dist/types/performance.d.ts",
+      "import": "./dist/performance.js",
+      "default": "./dist/performance.js"
+    },
+    "./cdn": "./dist/owleye.analytics.iife.js",
+    "./cdn/rules": "./dist/owleye.rules.iife.js",
+    "./cdn/performance": "./dist/owleye.performance.iife.js",
+    "./package.json": "./package.json",
+    "./integrity": "./dist/integrity.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm clean && pnpm build:types && pnpm build:modules && pnpm build:cdn && node scripts/write-integrity.mjs",
+    "build:cdn": "pnpm build:cdn:analytics && pnpm build:cdn:rules && pnpm build:cdn:performance",
+    "build:cdn:analytics": "OWLEYE_CDN_ENTRY=browser OWLEYE_CDN_NAME=OwlEyeAnalytics vite build --config vite.cdn.config.ts",
+    "build:cdn:rules": "OWLEYE_CDN_ENTRY=browser-rules OWLEYE_CDN_NAME=OwlEyeRules vite build --config vite.cdn.config.ts",
+    "build:cdn:performance": "OWLEYE_CDN_ENTRY=browser-performance OWLEYE_CDN_NAME=OwlEyePerformance vite build --config vite.cdn.config.ts",
+    "build:modules": "vite build",
+    "build:types": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "size": "node scripts/check-bundle-size.mjs",
+    "test": "pnpm build && node --test test/*.test.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "8.3.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "bugs": {
+    "url": "https://github.com/shrinathprabhu/owleye/issues"
+  },
+  "author": {
+    "name": "Shrinath",
+    "email": "hello@shrinath.me",
+    "url": "https://owleye.dev"
+  }
+}

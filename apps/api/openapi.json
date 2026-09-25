@@ -1,0 +1,968 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OwlEye Public API",
+    "version": "1.0.0",
+    "description": "Server event ingestion, scoped analytics reads, and bounded AI analysis. Ingestion and developer keys are separate, app-scoped secrets. Keep keys on a server; browser SDK tracking uses a public Tracking ID."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Your OwlEye server"
+    }
+  ],
+  "paths": {
+    "/v1/developer/sites/{siteId}/events": {
+      "get": {
+        "operationId": "getSiteEvents",
+        "tags": ["Analytics"],
+        "summary": "Read events",
+        "description": "Requires events:read and owner-enabled developer mode and API access. 600 requests/minute per workspace and source IP. Returns real retained data; empty results remain empty.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "events:read",
+        "parameters": [
+          {
+            "name": "siteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Site tracking ID. Must match the key."
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 7
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5000,
+              "default": 500
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "before_event_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Use with before for stable keyset pagination."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Events"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, revoked or disabled key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong scope or ownership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Site not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage or server error; no sample data is substituted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/developer/sites/{siteId}/stats": {
+      "get": {
+        "operationId": "getSiteStats",
+        "tags": ["Analytics"],
+        "summary": "Read stats",
+        "description": "Requires stats:read and owner-enabled developer mode and API access. 600 requests/minute per workspace and source IP. Returns real retained data; empty results remain empty.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "stats:read",
+        "parameters": [
+          {
+            "name": "siteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Site tracking ID. Must match the key."
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 7
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, expired, revoked or disabled key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong scope or ownership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Site not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal storage or server error; no sample data is substituted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/developer/sites/{siteId}/prompt": {
+      "post": {
+        "operationId": "askSiteAnalytics",
+        "tags": ["AI"],
+        "summary": "Ask a bounded analytics question (beta)",
+        "description": "Requires ai:prompt, developer API access, and enabled app AI access. Bounded reports cover one app and up to 366 days of retained data, including traffic, geography, events, properties, campaigns, and ordered conversions. Answers include supporting evidence. There are no usage quotas; concurrency and request rate safeguards apply. Prompt and answer bodies are not persisted. The public request does not accept conversation history.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "siteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["prompt"],
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "description": "At most 4,000 UTF-8 bytes."
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Answer and aggregate evidence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    },
+                    "answer": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "evidence": {
+                      "type": "object",
+                      "properties": {
+                        "report": {
+                          "type": "string"
+                        },
+                        "start_date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "end_date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "timezone": {
+                          "const": "UTC"
+                        },
+                        "period_label": {
+                          "type": "string",
+                          "description": "Server-derived display range, for example last 14 days"
+                        },
+                        "groups_suppressed_below_visitors": {
+                          "type": "integer"
+                        },
+                        "rows": {
+                          "type": "array",
+                          "maxItems": 90,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "events": {
+                                "type": "integer"
+                              },
+                              "pageviews": {
+                                "type": "integer"
+                              },
+                              "visitors": {
+                                "type": "integer"
+                              },
+                              "sessions": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "country": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 10
+                        },
+                        "browser": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 10
+                        },
+                        "device": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 10
+                        },
+                        "os": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 10
+                        },
+                        "metric": {
+                          "type": "string",
+                          "enum": [
+                            "events",
+                            "pageviews",
+                            "visitors",
+                            "sessions"
+                          ]
+                        },
+                        "chart": {
+                          "type": "string",
+                          "enum": ["none", "line", "bar", "pie", "donut"]
+                        },
+                        "output": {
+                          "type": "string",
+                          "enum": ["text", "pdf"]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unsupported question/report"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "409": {
+            "description": "Duplicate or expired request; no cached answer to replay"
+          },
+          "429": {
+            "description": "AI rate or concurrency limit reached"
+          },
+          "503": {
+            "description": "AI not configured or provider/query failure"
+          }
+        }
+      }
+    },
+    "/v1/events/api": {
+      "post": {
+        "operationId": "ingestServerEvents",
+        "tags": ["Server ingestion"],
+        "summary": "Send server events",
+        "description": "Requires an app-scoped ingestion key with events:write. 1 MiB body limit; at most 100 events. No client idempotency key. This is a server-to-server endpoint without browser CORS.",
+        "security": [
+          {
+            "ingestBearer": []
+          },
+          {
+            "ingestApiKey": []
+          }
+        ],
+        "x-required-scope": "events:write",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Inspect accepted and status; a 202 may contain zero accepted events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid event or batch"
+          },
+          "401": {
+            "description": "Missing, invalid, expired, or revoked ingestion key"
+          },
+          "403": {
+            "description": "Wrong app scope or tracking paused"
+          },
+          "413": {
+            "description": "Body exceeds 1 MiB"
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After"
+          },
+          "500": {
+            "description": "Service failure; do not blindly replay events"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-owleye-api-key"
+      },
+      "ingestBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Ingestion API key with events:write. Not a developer key."
+      },
+      "ingestApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-owleye-api-key",
+        "description": "Ingestion API key with events:write. Not a developer key."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "Dimension": {
+        "type": "object",
+        "required": ["name", "count"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Stats": {
+        "type": "object",
+        "required": ["site_id", "days", "totals", "timeseries"],
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "days": {
+            "type": "integer"
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "avg_duration_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "events": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "external_events": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pageviews": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "performance_events": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rule_events": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sessions": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "visitors": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "timeseries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "events": {
+                  "type": "integer"
+                },
+                "pageviews": {
+                  "type": "integer"
+                },
+                "visitors": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "browsers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "countries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "operating_systems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "referrers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "utm_campaigns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Dimension"
+            }
+          },
+          "event_names": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "event_name": {
+                  "type": "string"
+                },
+                "event_type": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "top_pages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "views": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "region_timeseries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "browser": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "event_name": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": "string"
+          },
+          "operating_system": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "referrer_host": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "utm_campaign": {
+            "type": "string"
+          },
+          "utm_medium": {
+            "type": "string"
+          },
+          "utm_source": {
+            "type": "string"
+          },
+          "visitor_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Events": {
+        "type": "object",
+        "required": ["site_id", "data", "pagination"],
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "type": "integer"
+              },
+              "limit": {
+                "type": "integer"
+              },
+              "next_before": {
+                "type": ["string", "null"]
+              },
+              "next_event_id": {
+                "type": ["string", "null"]
+              }
+            }
+          }
+        }
+      },
+      "IngestEvent": {
+        "type": "object",
+        "required": ["type", "name"],
+        "description": "Each event data object is limited to 16 KiB. Use external for custom server events. Avoid personal identifiers.",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "external",
+              "pageview",
+              "page_session",
+              "rule",
+              "performance"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "1\u2013128 UTF-8 bytes, no control characters."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Optional; defaults to server time. Up to 90 days old or five minutes ahead."
+          },
+          "page": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "referrer": {
+                "type": "string"
+              }
+            }
+          },
+          "environment": {
+            "type": "object",
+            "description": "Optional browser context; do not fabricate visitor identity."
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "records": {
+                "type": "object",
+                "maxProperties": 10,
+                "additionalProperties": {
+                  "type": ["string", "number", "boolean"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "IngestPayload": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["site_id", "event"],
+            "properties": {
+              "site_id": {
+                "type": "string"
+              },
+              "event": {
+                "$ref": "#/components/schemas/IngestEvent"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["site_id", "events"],
+            "properties": {
+              "site_id": {
+                "type": "string"
+              },
+              "events": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "$ref": "#/components/schemas/IngestEvent"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "IngestResult": {
+        "type": "object",
+        "required": ["accepted", "event_ids", "status"],
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["accepted", "privacy_signal_honored"]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+name: Publish SDK
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: npm-sdk-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'shrinathprabhu/owleye' && !github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify release version and source
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/check-sdk-release.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @owleye/analytics test
+      - run: pnpm --filter @owleye/analytics size
+      - name: Inspect package
+        working-directory: packages/analytics
+        run: npm pack --dry-run --ignore-scripts
+      - name: Publish with npm trusted publishing and provenance
+        working-directory: packages/analytics
+        env:
+          DIST_TAG: ${{ github.event.release.prerelease && 'next' || 'latest' }}
+        run: npm publish --access public --provenance --ignore-scripts --tag "$DIST_TAG"

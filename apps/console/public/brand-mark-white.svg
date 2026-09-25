@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 -4 80 80" fill="none">
+  <title>OwlEye white mark</title>
+  <defs>
+    <mask id="white-cutouts">
+      <path d="M10 8C20.5 17.2 30.4 20.5 40 20.5S59.5 17.2 70 8c1.2-1 2.8.2 2.5 1.8-1 5-3.4 9.2-7.2 12.4 5.3 5.2 8 12.2 7.4 20.5C71.6 57.4 58.8 67 40 67S8.4 57.4 7.3 42.7c-.6-8.3 2.1-15.3 7.4-20.5-3.8-3.2-6.2-7.4-7.2-12.4C7.2 8.2 8.8 7 10 8Z" fill="white"/>
+      <circle cx="27" cy="37" r="10.5" fill="black"/>
+      <circle cx="53" cy="37" r="10.5" fill="black"/>
+      <path d="M32 45h16l-8 16Z" fill="black"/>
+    </mask>
+  </defs>
+  <path d="M10 8C20.5 17.2 30.4 20.5 40 20.5S59.5 17.2 70 8c1.2-1 2.8.2 2.5 1.8-1 5-3.4 9.2-7.2 12.4 5.3 5.2 8 12.2 7.4 20.5C71.6 57.4 58.8 67 40 67S8.4 57.4 7.3 42.7c-.6-8.3 2.1-15.3 7.4-20.5-3.8-3.2-6.2-7.4-7.2-12.4C7.2 8.2 8.8 7 10 8Z" fill="#FFFFFF" mask="url(#white-cutouts)"/>
+  <circle cx="27" cy="37" r="5.75" fill="#FFFFFF"/>
+  <circle cx="53" cy="37" r="5.75" fill="#FFFFFF"/>
+</svg>

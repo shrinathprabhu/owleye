@@ -1,0 +1,343 @@
+# @owleye/analytics
+
+A dependency-free, cookie-free browser analytics SDK for OwlEye.
+
+## Install
+
+```sh
+pnpm add @owleye/analytics
+# or: npm install @owleye/analytics
+# or: bun add @owleye/analytics
+# or: yarn add @owleye/analytics
+```
+
+```ts
+import { useAnalytics } from "@owleye/analytics";
+
+const analytics = useAnalytics("owl_your_tracking_id", {
+  server: "https://analytics.example.com", // your OwlEye origin
+  captureCampaigns: true,
+});
+
+analytics.track("signup_completed", {
+  plan: "founder",
+});
+
+// Call during app teardown or when tracking permission is withdrawn.
+function stopAnalytics() {
+  analytics.stop();
+}
+```
+
+## Browser script
+
+For this installation, set `server` (or `data-owleye-server`) to your own OwlEye origin. Copy the snippet from Console to get the correct URL.
+
+Load the dependency-free CDN build with your site ID. Pin a published version
+in production rather than using a moving tag.
+
+```html
+<script
+  defer
+  crossorigin="anonymous"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.analytics.iife.js"
+  data-owleye-id="owl_your_tracking_id"
+  data-owleye-server="https://analytics.example.com"
+></script>
+<script>
+  window.addEventListener("load", () => {
+    window.OwlEyeAnalytics.track("signup_completed", { plan: "founder" });
+  });
+</script>
+```
+
+The default SDK excludes URL query strings and fragments, writes no cookies,
+`localStorage`, or `sessionStorage`, omits request credentials, and respects
+both Do Not Track (DNT) and Global Privacy Control (GPC). Optional entrypoints
+keep rule tracking and performance tracking out of the main bundle:
+
+```ts
+import { trackPerf } from "@owleye/analytics/performance";
+import { trackRules } from "@owleye/analytics/rules";
+```
+
+Import `trackWebVitals` from `@owleye/analytics/performance` to opt into
+PerformanceObserver estimates. The pre-release `performance: true` core option
+has been removed so the core bundle actually excludes the optional collector.
+These estimates are marked `approximate: true`; they do not implement the full
+reference Web Vitals algorithms and must not be presented as CrUX-equivalent
+CLS or INP scores. The standalone performance entrypoint enables those
+field metrics automatically and also exposes manual spans. Measurements obey
+the same DNT/GPC, URL-redaction, origin and privacy controls as other
+events. `captureCampaigns: true` retains only `utm_source`, `utm_medium`, and
+`utm_campaign`; unrelated query parameters remain excluded.
+
+Create the site in the console first. Allowed domains are optional: leave them blank
+to allow all browser origins, or add multiple domains to restrict tracking and rule
+delivery to matching hosts. Use the public
+tracking ID in browser code; keep API/developer secrets on your server. Verify
+`POST /v1/events` in the Network panel and check the response's `accepted` count:
+HTTP 202 can also acknowledge a privacy opt-out with zero events.
+Then confirm the event in the console. See the [quickstart](https://owleye.dev/docs/quickstart/)
+for framework setup and troubleshooting.
+
+`pnpm size` checks the complete ESM consumer bundles, including shared chunks,
+and verifies that unused imports disappear. The core has no runtime dependencies
+and does not include the optional rules or performance collectors.
+
+Cookie-free does not determine your lawful basis. If your policy or applicable
+law requires a decision before analytics starts, gate it explicitly:
+
+```ts
+const analytics = useAnalytics("owl_your_tracking_id", {
+  server: "https://analytics.example.com",
+  autoStart: false,
+});
+
+// Call only after your consent/lawful-basis flow permits analytics.
+analytics.start();
+
+// Withdraw immediately without sending the active page-session segment.
+analytics.stop();
+```
+
+Create the optional rule and performance trackers only after that same decision;
+`autoStart` controls the automatic page-analytics entrypoint, not explicit optional
+entrypoints.
+
+For consent-gated CDN usage, add `data-owleye-auto-start="false"` and later
+call `window.OwlEyeAnalytics.start()`. `respectDoNotTrack` and
+`respectGlobalPrivacyControl` both default to `true`. Disabling the SDK's GPC
+check does not override any server-side privacy-signal enforcement.
+
+## CDN campaigns, custom data, rules, and performance
+
+The CDN globals are `window.OwlEyeAnalytics`, `window.OwlEyeRules`, and
+`window.OwlEyePerformance`. Each is available only after its corresponding bundle
+loads successfully. There is no single `window.OwlEye` object and no pre-load queue.
+
+Load these scripts once with the same Tracking ID and endpoint. Keep `defer`
+(rather than `async`) when a later script depends on their order:
+
+```html
+<script
+  defer
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.analytics.iife.js"
+  data-owleye-id="owl_your_tracking_id"
+  data-owleye-server="https://analytics.example.com"
+  data-owleye-capture-campaigns="true"
+></script>
+<!-- Optional: enabled rules configured in Console -->
+<script
+  defer
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.rules.iife.js"
+  data-owleye-id="owl_your_tracking_id"
+  data-owleye-server="https://analytics.example.com"
+  data-owleye-capture-campaigns="true"
+></script>
+<!-- Optional: automatic Web Vitals and manual timings -->
+<script
+  defer
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.performance.iife.js"
+  data-owleye-id="owl_your_tracking_id"
+  data-owleye-server="https://analytics.example.com"
+  data-owleye-capture-campaigns="true"
+></script>
+<script defer src="/analytics-events.js"></script>
+```
+
+`data-owleye-capture-campaigns="true"` opts each bundle into capturing only
+`utm_source`, `utm_medium`, and `utm_campaign` from the current page URL, for
+example `?utm_source=newsletter&utm_medium=email&utm_campaign=autumn_launch`.
+Leave full query capture disabled. Campaigns are attribution on normal events,
+not a fourth SDK bundle or a separate manual tracking call. This does not persist
+first-touch attribution after those parameters disappear from the URL.
+
+In your own **analytics-events.js**, use the initialized globals directly:
+
+```js
+const analytics = window.OwlEyeAnalytics;
+
+// Optional fields reused by custom events. Never put personal identifiers here.
+analytics?.setGlobalRecords({
+  app_version: "1.0.0",
+  environment: "production",
+});
+
+// A manual custom event: values retain their string / number / boolean types.
+document.getElementById("download-report")?.addEventListener("click", () => {
+  analytics?.track("report_downloaded", {
+    format: "pdf",
+    page_count: 12,
+    included_charts: true,
+  });
+});
+
+// Time your real asynchronous operation; no automatic page analytics needed.
+async function loadReport() {
+  const end = window.OwlEyePerformance?.start("report_load", { format: "pdf" });
+  try {
+    const response = await fetch("/reports/latest");
+    end?.({ ok: response.ok, status_code: response.status });
+    return response;
+  } catch (error) {
+    end?.({ ok: false, failure: "network" });
+    throw error;
+  }
+}
+```
+
+For an inline `<script>`, wrap setup code in a `DOMContentLoaded` listener: inline
+scripts execute immediately even when preceded by deferred external scripts. For
+a dynamically injected CDN script, wait for its `load` event before using the
+global. Optional chaining prevents an exception when a script is blocked; it drops
+the call and does not retry it. If scripts can arrive later, read the global at
+call time instead of caching an initially undefined reference.
+
+Rules need no manual JS handler: configure and enable a rule in Console, load the
+rules bundle, and trigger the matching interaction. Configure its custom-property
+selectors there too. Do not add a manual `.track()` for the same action unless you
+intend two events. A JavaScript `enrichRule` callback is a module-import option;
+it cannot be passed as a CDN HTML attribute. Use manual `.track()` for computed
+custom data in plain JavaScript.
+
+The performance bundle starts Web Vitals automatically. Manual spans use
+`window.OwlEyePerformance.start()` as shown above. To stop Web Vitals, call
+`window.OwlEyePerformance?.observeVitals().stop()`; to stop rules, call
+`window.OwlEyeRules?.stop()`. The performance global itself has no `.stop()`.
+Only load optional bundles after any required tracking-permission decision;
+`data-owleye-auto-start="false"` delays the analytics bundle alone.
+
+### Custom-property contract
+
+- Custom events: **10 fields total**, combining global and event-specific fields;
+  event-specific values override a matching global key.
+- Rules: **10 fields total**, combining configured DOM captures and optional
+  module-based enrichment. Configured captures take precedence.
+- Performance: **10 fields at start and 10 at end**. Built-in timing fields are
+  separate; the entire event data still must fit within **16 KiB**.
+- Values: **string, finite number, or boolean** only. No `null`, `undefined`, arrays,
+  nested objects, `Date` instances, bigint, functions, `NaN`, or infinities.
+  Missing rule elements are omitted. Use an ISO string or numeric timestamp for a
+  date; use named flat fields for structured concepts. JSON encoded as a string
+  stays an opaque string, not queryable nested properties.
+
+Invalid manual data is logged and dropped by the SDK without throwing into your
+application. The API also validates custom properties. Check the request to
+`/v1/events` and its `accepted` count; look for the event in Console's Events page,
+UTM attribution in Campaigns, and automatic measurements in Web Vitals.
+
+## Visitor identification and browser storage
+
+All three SDK bundles use in-memory state only. They do not read or write cookies,
+localStorage, sessionStorage, IndexedDB, or Cache Storage, and they do not install a
+service worker or persist an event queue. Event and rule requests use
+`credentials: "omit"`, including when the API shares the page's origin.
+
+The API derives site-scoped, keyed pseudonyms from the truncated IP prefix (IPv4
+/24 or IPv6 /64), user agent, timezone, and server salt. The visitor pseudonym can
+remain stable across days while those inputs stay unchanged; the user pseudonym
+changes daily and session pseudonyms use fixed 30-minute buckets. These are
+approximate identifiers: different people can share one, and the same person can
+receive another after their network or browser changes. Cookie-free does not mean
+there is no server-side identification.
+
+The authenticated Console uses HttpOnly, SameSite login cookies, with Secure on
+HTTPS. Its localStorage entries contain only refresh timestamps/expiry and a
+random timestamped tab-notification signal, not user IDs, passwords, or tokens.
+Those entries coordinate Console tabs and are not used for analytics visitors.
+Custom event data and rule captures are controlled by the integrator: do not send
+personal identifiers or copy a site's own stored identifiers into event fields.
+
+## Repeated initialization and runtime limits
+
+Each browser document shares one active analytics controller, rule tracker, and
+Web Vitals observation per normalized tracking ID and API base, including across
+ESM and CDN copies. Repeated initialization reuses them; the first configuration
+(including enrichment) wins until that tracker is stopped. Stop and recreate a
+tracker to change its options. Own this lifecycle at the app root: calling
+`stop()` from any consumer stops the shared tracker for every consumer.
+
+Cleanup/remount on the same URL does not send another automatic pageview. Real
+SPA URL changes and explicit `pageview()` calls still count. Explicit `track()`
+calls and distinct matching rule IDs remain separate events; the SDK cannot infer
+whether your application intended those calls. Duplicate rule IDs from a rules
+response are ignored. A replaced DOM element may legitimately produce a new view
+impression.
+
+Delivery is best effort, with no persistent queue or automatic retries. Across the
+document, at most eight event requests and 60,000 bytes are in flight, with a
+five-second timeout and a 100-events/second budget (burst capacity 200). Excess
+events are dropped. Rule loading times out after ten seconds. Pending rule debounce
+timers and added DOM roots are bounded at 250 each; mutation overflow coalesces into
+a refresh. Stopping rules clears timers, listeners, and observers.
+
+SDK failures are contained at public calls and background callbacks. Invalid
+initialization returns a safe no-op controller; invalid events are dropped and
+valid later calls can continue. Console warnings identify the failed operation,
+without event payloads or raw exception messages, and are limited to ten per minute
+per document. Logging failures are also contained. Browser matching,
+serialization, and synchronous enrichment execute on the main thread: keep
+selectors narrow and enrichment fast. These safeguards do not guarantee zero CPU
+cost or prevent a slow application callback from blocking its own page.
+
+## API
+
+| Entry point                                       | Purpose                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `useAnalytics(siteId, config)`                    | Returns an idempotent page and custom-event controller.                               |
+| `controller.track(name, records?)`                | Sends a custom event with at most ten primitive fields.                               |
+| `controller.pageview(page?)`                      | Records a route change that did not update browser history.                           |
+| `controller.setGlobalRecords(records?)`           | Replaces fields merged into future custom events; the combined limit is ten.          |
+| `controller.start()` / `stop()`                   | Idempotently installs or removes automatic browser tracking.                          |
+| `trackPerf(siteId, config).start(name, records?)` | Starts a measurement with at most ten fields and returns its idempotent end function. |
+| `trackPerf(siteId, config).observeVitals()`       | Starts automatic LCP, INP, CLS, FCP, and TTFB field collection.                       |
+| `trackRules(siteId, config)`                      | Loads server-managed rules and returns a stoppable controller.                        |
+
+```ts
+import { trackPerf } from "@owleye/analytics/performance";
+import { trackRules } from "@owleye/analytics/rules";
+
+const perf = trackPerf("owl_your_tracking_id", {
+  server: "https://analytics.example.com",
+});
+const endCheckout = perf.start("checkout_latency", { plan: "pro" });
+endCheckout({ outcome: "success" });
+
+const rules = trackRules("owl_your_tracking_id", {
+  server: "https://analytics.example.com",
+});
+rules.stop();
+```
+
+Event and performance records must be flat objects containing only strings,
+finite numbers, or booleans. Custom events accept at most ten fields and
+performance start/end records accept at most ten fields each. Invalid names,
+oversized payloads, nested values, and excess fields are logged and dropped before
+a request is sent. These validation failures do not throw into your application.
+
+Avoid sending names, email addresses, tokens, or other personal data. SDK
+constructors validate the site ID and server URL immediately, including during
+server rendering; create browser controllers in client-only lifecycle code.
+See the
+[SDK guide](https://owleye.dev/docs/sdk/) for configuration, browser/CDN usage,
+SPA behavior, payload limits, and cleanup.
+
+Source: <https://github.com/shrinathprabhu/owleye>
+
+License: AGPL-3.0-or-later
+
+## Reproducible release artifacts
+
+The package is published on npm. Source-checkout builds generate
+`dist/integrity.json` with SHA-384 digests for each standalone IIFE. For a CDN install,
+use an exact published version, its matching integrity value, and
+`crossorigin="anonymous"`. Do not copy a digest from a different build.
+
+The GitHub release workflow builds and publishes the version in this manifest with npm provenance. Configure the npm trusted publisher as described in the [self-hosting guide](https://github.com/shrinathprabhu/owleye/blob/HEAD/docs/SELF_HOSTING.md#sdk), then publish a matching release tag.
+
+Package: [@owleye/analytics](https://www.npmjs.com/package/@owleye/analytics) · [Source](https://github.com/shrinathprabhu/owleye/tree/HEAD/packages/analytics) · [Website](https://owleye.dev)
+
+Maintained by **Shrinath** · [hello@shrinath.me](mailto:hello@shrinath.me) · [owleye.dev](https://owleye.dev).
+
+The npm package description uses this SDK README from `packages/analytics`, not the monorepo root README. README changes reach npm with the next published package version.

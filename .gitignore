@@ -1,0 +1,12 @@
+node_modules/
+target/
+.nuxt/
+.output/
+dist
+.env
+.env.*
+!.env.example
+.owleye/
+*.sqlite*
+*.mmdb
+.DS_Store

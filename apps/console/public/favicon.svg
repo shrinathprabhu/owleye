@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 -4 80 80" fill="none">
+  <title>OwlEye signal owl</title>
+  <path d="M10 8C20.5 17.2 30.4 20.5 40 20.5S59.5 17.2 70 8c1.2-1 2.8.2 2.5 1.8-1 5-3.4 9.2-7.2 12.4 5.3 5.2 8 12.2 7.4 20.5C71.6 57.4 58.8 67 40 67S8.4 57.4 7.3 42.7c-.6-8.3 2.1-15.3 7.4-20.5-3.8-3.2-6.2-7.4-7.2-12.4C7.2 8.2 8.8 7 10 8Z" stroke="#F4F1E8" stroke-width="5.5" stroke-linejoin="round"/>
+  <path d="M10 8C20.5 17.2 30.4 20.5 40 20.5S59.5 17.2 70 8c1.2-1 2.8.2 2.5 1.8-1 5-3.4 9.2-7.2 12.4 5.3 5.2 8 12.2 7.4 20.5C71.6 57.4 58.8 67 40 67S8.4 57.4 7.3 42.7c-.6-8.3 2.1-15.3 7.4-20.5-3.8-3.2-6.2-7.4-7.2-12.4C7.2 8.2 8.8 7 10 8Z" fill="#3D5AFE" stroke="#151515" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M32 45h16l-8 16Z" fill="#FF705C" stroke="#151515" stroke-width="2.25" stroke-linejoin="round"/>
+  <circle cx="27" cy="37" r="10.5" fill="#F4F1E8" stroke="#151515" stroke-width="2"/>
+  <circle cx="53" cy="37" r="10.5" fill="#F4F1E8" stroke="#151515" stroke-width="2"/>
+  <circle cx="27" cy="37" r="5.75" fill="#151515"/>
+  <circle cx="53" cy="37" r="5.75" fill="#151515"/>
+  <path d="M27 37v-5.75A5.75 5.75 0 0 1 32.75 37ZM53 37v-5.75A5.75 5.75 0 0 1 58.75 37Z" fill="#D8FF52"/>
+</svg>

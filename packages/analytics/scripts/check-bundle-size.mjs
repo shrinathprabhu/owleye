@@ -37,12 +37,13 @@ async function consumerBundle(source) {
 
 // Includes the shared-instance registry and bounded delivery lifecycle,
 // fail-safe API boundaries, and bounded diagnostics.
+// Standalone CDN budgets include 800 bytes of gzip allowance for the full MIT notice.
 const budgets = new Map([
   ["dist/index.js", 1_400],
   ["dist/rules.js", 6_500],
-  ["dist/owleye.analytics.iife.js", 5_600],
-  ["dist/owleye.rules.iife.js", 9_400],
-  ["dist/owleye.performance.iife.js", 5_400],
+  ["dist/owleye.analytics.iife.js", 6_400],
+  ["dist/owleye.rules.iife.js", 10_200],
+  ["dist/owleye.performance.iife.js", 6_200],
 ]);
 
 const formatBytes = (bytes) => `${(bytes / 1_024).toFixed(2)} KiB`;

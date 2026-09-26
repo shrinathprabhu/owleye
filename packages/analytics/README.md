@@ -325,7 +325,7 @@ SPA behavior, payload limits, and cleanup.
 
 Source: <https://github.com/shrinathprabhu/owleye>
 
-License: AGPL-3.0-or-later
+License: [MIT](LICENSE)
 
 ## Reproducible release artifacts
 

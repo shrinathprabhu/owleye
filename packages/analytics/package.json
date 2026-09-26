@@ -2,7 +2,7 @@
   "name": "@owleye/analytics",
   "version": "1.0.0",
   "description": "Privacy-preserving, cookie-free analytics SDK for OwlEye.",
-  "license": "AGPL-3.0-or-later",
+  "license": "MIT",
   "homepage": "https://owleye.dev/docs/sdk/",
   "repository": {
     "type": "git",

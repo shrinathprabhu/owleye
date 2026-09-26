@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import { version } from "./package.json";
@@ -34,6 +35,8 @@ export default defineConfig({
     rolldownOptions: {
       external: [],
       output: {
+        comments: { legal: true },
+        banner: `/*!\n${readFileSync(new URL("./LICENSE", import.meta.url), "utf8")}*/`,
         entryFileNames: entry.output,
       },
       treeshake: true,

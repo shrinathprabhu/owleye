@@ -17,6 +17,9 @@ Privacy-preserving analytics on your own server. One Rust server serves the Nuxt
 
 Recommended minimum: **4 vCPU, 8 GB RAM, and 20 GB free storage**. This is guidance, not an enforced restriction. Install Node.js 26.2+, pnpm 10.28.1, Rust 1.95+ with Cargo, ClickHouse, and SQLite before setup. Caddy is optional. Follow the [prerequisite installation links and commands](docs/SELF_HOSTING.md#installing-prerequisites), then run `./setup.sh --check`. Running setup again refuses to overwrite an existing installation; use redeploy to rebuild and restart.
 
-Licensed under [AGPL-3.0-or-later](LICENSE).
+Licensed under [MIT](LICENSE).
 
 Maintained by **Shrinath** · [hello@shrinath.me](mailto:hello@shrinath.me) · [owleye.dev](https://owleye.dev).
+
+Third-party dependencies and bundled assets retain their respective licenses,
+including the [amCharts map data](apps/console/public/maps/LICENSE.amcharts).

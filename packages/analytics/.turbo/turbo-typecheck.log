@@ -1,4 +1,0 @@
-
-> @owleye/analytics@0.0.1 typecheck /Users/shrinathprabhu/personal/owleye/packages/analytics
-> tsc -p tsconfig.json --noEmit
-

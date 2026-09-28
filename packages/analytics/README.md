@@ -15,7 +15,6 @@ pnpm add @owleye/analytics
 import { useAnalytics } from "@owleye/analytics";
 
 const analytics = useAnalytics("owl_your_tracking_id", {
-  server: "https://analytics.example.com", // your OwlEye origin
   captureCampaigns: true,
 });
 
@@ -29,9 +28,9 @@ function stopAnalytics() {
 }
 ```
 
-## Browser script
+See [Config](#config) for all optional settings and their defaults.
 
-For this installation, set `server` (or `data-owleye-server`) to your own OwlEye origin. Copy the snippet from Console to get the correct URL.
+## Browser script
 
 Load the dependency-free CDN build with your site ID. Pin a published version in production rather than using a moving tag.
 
@@ -41,7 +40,6 @@ Load the dependency-free CDN build with your site ID. Pin a published version in
   crossorigin="anonymous"
   src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.analytics.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-server="https://analytics.example.com"
 ></script>
 <script>
   window.addEventListener("load", () => {
@@ -67,7 +65,6 @@ Cookie-free does not determine your lawful basis. If your policy or applicable l
 
 ```ts
 const analytics = useAnalytics("owl_your_tracking_id", {
-  server: "https://analytics.example.com",
   autoStart: false,
 });
 
@@ -93,7 +90,6 @@ Load these scripts once with the same Tracking ID and endpoint. Keep `defer` (ra
   defer
   src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.analytics.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-server="https://analytics.example.com"
   data-owleye-capture-campaigns="true"
 ></script>
 <!-- Optional: enabled rules configured in Console -->
@@ -101,7 +97,6 @@ Load these scripts once with the same Tracking ID and endpoint. Keep `defer` (ra
   defer
   src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.rules.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-server="https://analytics.example.com"
   data-owleye-capture-campaigns="true"
 ></script>
 <!-- Optional: automatic Web Vitals and manual timings -->
@@ -109,7 +104,6 @@ Load these scripts once with the same Tracking ID and endpoint. Keep `defer` (ra
   defer
   src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.0/dist/owleye.performance.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-server="https://analytics.example.com"
   data-owleye-capture-campaigns="true"
 ></script>
 <script defer src="/analytics-events.js"></script>
@@ -201,21 +195,57 @@ SDK failures are contained at public calls and background callbacks. Invalid ini
 import { trackPerf } from "@owleye/analytics/performance";
 import { trackRules } from "@owleye/analytics/rules";
 
-const perf = trackPerf("owl_your_tracking_id", {
-  server: "https://analytics.example.com",
-});
+const perf = trackPerf("owl_your_tracking_id");
 const endCheckout = perf.start("checkout_latency", { plan: "pro" });
 endCheckout({ outcome: "success" });
 
-const rules = trackRules("owl_your_tracking_id", {
-  server: "https://analytics.example.com",
-});
+const rules = trackRules("owl_your_tracking_id");
 rules.stop();
 ```
 
 Event and performance records must be flat objects containing only strings, finite numbers, or booleans. Custom events accept at most ten fields and performance start/end records accept at most ten fields each. Invalid names, oversized payloads, nested values, and excess fields are logged and dropped before a request is sent. These validation failures do not throw into your application.
 
 Avoid sending names, email addresses, tokens, or other personal data. SDK constructors validate the site ID and server URL immediately, including during server rendering; create browser controllers in client-only lifecycle code. See the [SDK guide](https://owleye.dev/docs/sdk/) for configuration, browser/CDN usage, SPA behavior, payload limits, and cleanup.
+
+## Config
+
+All configuration fields are optional. Pass an `OwlConfig` object as the second argument to `useAnalytics`, `trackPerf`, or `trackWebVitals`. `trackRules` accepts `OwlRulesConfig`, which adds `enrichRule` to the same options. Each entrypoint has its own configuration; options are not automatically copied between trackers.
+
+| Field | Type | Default | Behavior |
+| --- | --- | --- | --- |
+| `autoStart` | `boolean` | `true` | Start automatic page analytics when `useAnalytics` is called. Set to `false` to wait until `controller.start()`. Does not delay rules or performance tracking. |
+| `debug` | `boolean` | `false` | Log event payloads and diagnostics to the browser console. Failures still produce bounded warnings when disabled. |
+| `mock` | `boolean` | `false` | Skip network requests; useful with `debug` during development. Remote rules are not loaded. |
+| `captureQuery` | `boolean` | `false` | Include full query strings in page and referrer fields. Takes precedence over `captureCampaigns`; query strings may contain sensitive information. |
+| `captureCampaigns` | `boolean` | `false` | Include only `utm_source`, `utm_medium`, and `utm_campaign` from the current URL. Does not persist attribution after the parameters disappear. |
+| `captureHash` | `boolean` | `false` | Include URL fragments in page and referrer fields. Fragments may contain sensitive information. |
+| `respectDoNotTrack` | `boolean` | `true` | Disable tracking when the browser sends a Do Not Track signal. |
+| `respectGlobalPrivacyControl` | `boolean` | `true` | Disable tracking when the browser enables Global Privacy Control. Disabling this check does not override API-side enforcement. |
+| `server` | `string \| URL` | `https://api.owleye.dev` | Override the API base with an absolute HTTP(S) URL or same-origin path. Credentials, query strings, and fragments are not allowed. |
+| `enrichRule` | `RuleEnricher` | Unset | `trackRules` only: synchronously return custom fields from `(rule, context)`, or return nothing. The context contains `element`, optional `event`, and interaction `type`. |
+
+Rule enrichment shares the ten-field limit with configured DOM captures; configured captures take precedence. Return only string, finite number, or boolean values. Throwing or returning invalid data does not prevent the base rule event.
+
+The examples use the default hosted API. For self-hosting, set `server` to your own OwlEye origin on each SDK entrypoint you use. Copy the installation snippet from your Console for the correct endpoint; omitting the override sends requests to the hosted API.
+
+### CDN configuration
+
+Set the corresponding attributes on each bundle's script tag. Omitted attributes use the defaults above. Boolean attributes accept `"true"` or `"1"` for enabled and `"false"` or `"0"` for disabled; an empty attribute also enables the option.
+
+| Configuration field | CDN attribute |
+| --- | --- |
+| `autoStart` | `data-owleye-auto-start` |
+| `debug` | `data-owleye-debug` |
+| `mock` | `data-owleye-mock` |
+| `captureQuery` | `data-owleye-capture-query` |
+| `captureCampaigns` | `data-owleye-capture-campaigns` |
+| `captureHash` | `data-owleye-capture-hash` |
+| `respectDoNotTrack` | `data-owleye-respect-do-not-track` |
+| `respectGlobalPrivacyControl` | `data-owleye-respect-global-privacy-control` |
+| `server` | `data-owleye-server` |
+| `enrichRule` | Not available as an HTML attribute; use the module API. |
+
+The tracking ID is supplied separately using `data-owleye-id`. See [CDN campaigns, custom data, rules, and performance](#cdn-campaigns-custom-data-rules-and-performance) for accessing the browser globals.
 
 Source: <https://github.com/shrinathprabhu/owleye>
 

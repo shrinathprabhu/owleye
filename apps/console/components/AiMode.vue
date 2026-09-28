@@ -211,7 +211,9 @@ async function sendPrompt() {
 
 <template>
   <section class="ai-mode-layout">
-    <header v-if="status" class="ai-budget-strip"><div><span>AI usage</span><strong>Unlimited</strong></div></header>
+    <header v-if="status" class="ai-budget-strip">
+      <div><span>AI usage</span><strong>Unlimited</strong></div>
+    </header>
 
     <article
       v-if="status && !status.provider_available && !submitted.length"
@@ -221,9 +223,7 @@ async function sendPrompt() {
       <div>
         <p class="eyebrow">AI is not available yet</p>
         <h2>The analytics assistant is awaiting activation.</h2>
-        <p>
-          Ask your server administrator to configure an AI provider.
-        </p>
+        <p>Ask your server administrator to configure an AI provider.</p>
       </div>
     </article>
     <article
@@ -245,9 +245,7 @@ async function sendPrompt() {
       <div>
         <p class="eyebrow">AI unavailable</p>
         <h2>Your account does not currently have AI access.</h2>
-        <p>
-          Ask the app owner to enable AI in settings.
-        </p>
+        <p>Ask the app owner to enable AI in settings.</p>
       </div>
     </article>
 
@@ -305,8 +303,8 @@ async function sendPrompt() {
           <span class="welcome-mark" aria-hidden="true">✦</span>
           <h3>Your numbers have a story.</h3>
           <p>
-            Ask about locations, events, traffic, or campaign conversions.<br />Include
-            the filters and date range you want to explore.
+            Ask about locations, events, traffic, or campaign conversions.
+            Include the filters and date range you want to explore.
           </p>
         </div>
         <article

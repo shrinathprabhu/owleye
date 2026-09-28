@@ -21,5 +21,4 @@ Licensed under [MIT](LICENSE).
 
 Maintained by **Shrinath** · [hello@shrinath.me](mailto:hello@shrinath.me) · [owleye.dev](https://owleye.dev).
 
-Third-party dependencies and bundled assets retain their respective licenses,
-including the [amCharts map data](apps/console/public/maps/LICENSE.amcharts).
+Third-party dependencies and bundled assets retain their respective licenses, including the [amCharts map data](apps/console/public/maps/LICENSE.amcharts).

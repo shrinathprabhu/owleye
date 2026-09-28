@@ -4,15 +4,15 @@
 
 Use Linux (recommended), macOS, or WSL2 with a supported native toolchain. Install these before starting setup; the installer reports missing dependencies and does not install system packages:
 
-| Dependency        | Required configuration                                                                                           |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Node.js           | 26.2 or newer within Node 26; required for setup and Nuxt builds                                                 |
-| pnpm              | 10.28.1 (`npm install -g pnpm@10.28.1`)                                                                          |
-| Rust / Cargo      | 1.95 or newer; install through rustup                                                                            |
+| Dependency | Required configuration |
+| --- | --- |
+| Node.js | 26.2 or newer within Node 26; required for setup and Nuxt builds |
+| pnpm | 10.28.1 (`npm install -g pnpm@10.28.1`) |
+| Rust / Cargo | 1.95 or newer; install through rustup |
 | C/C++ build tools | Linux `build-essential` / platform equivalent, or macOS Command Line Tools; SQLite bindings are built with Cargo |
-| ClickHouse        | Running server with its HTTP endpoint reachable; `clickhouse` or `clickhouse-client` installed                   |
-| SQLite            | `sqlite3` CLI; Rust uses embedded SQLite, with no separate SQLite server                                         |
-| Git               | Required only for cloning and `./update.sh`                                                                      |
+| ClickHouse | Running server with its HTTP endpoint reachable; `clickhouse` or `clickhouse-client` installed |
+| SQLite | `sqlite3` CLI; Rust uses embedded SQLite, with no separate SQLite server |
+| Git | Required only for cloning and `./update.sh` |
 
 Builds need network access to npm and crates.io. Docker and Caddy are optional. Configure HTTPS with a reverse proxy of your choice for an Internet-facing installation. Bind to loopback behind that proxy and forward the entire domain, including `/v1`, to one port.
 
@@ -22,49 +22,35 @@ Use a dedicated ClickHouse database and user. For example, create an `owleye` da
 
 ### Installing prerequisites
 
-Use the upstream instructions for your operating system and CPU architecture.
-These links can recommend newer defaults; use the versions pinned by this
-checkout (`.nvmrc`, `package.json`, and `rust-toolchain.toml`). OwlEye's scripts
-check the required CLI tools and versions; they do not install system packages
-or configure a database service automatically.
+Use the upstream instructions for your operating system and CPU architecture. These links can recommend newer defaults; use the versions pinned by this checkout (`.nvmrc`, `package.json`, and `rust-toolchain.toml`). OwlEye's scripts check the required CLI tools and versions; they do not install system packages or configure a database service automatically.
 
-| Dependency     | Installation instructions                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js        | [Official download and installation options](https://nodejs.org/en/download). Select Node **26**, version **26.2 or newer**; the default LTS selection may be a different major. With an existing nvm installation, run `nvm install` and `nvm use` from this checkout.                                                                                                                        |
-| pnpm           | After Node is active, run `npm install -g pnpm@10.28.1`. See [pnpm 10 installation](https://pnpm.io/10.x/installation). Avoid an unpinned `latest` install.                                                                                                                                                                                                                                    |
-| Rust / Cargo   | Follow [rustup installation](https://rust-lang.org/tools/install/), then run `rustup toolchain install 1.95.0 --profile minimal`. This checkout selects its toolchain through `rust-toolchain.toml`.                                                                                                                                                                                           |
-| Build tools    | Ubuntu/Debian: install `build-essential` through apt. macOS: run `xcode-select --install`; see [Apple Command Line Tools](https://developer.apple.com/documentation/xcode/installing-the-command-line-tools/). Other Linux distributions: install their C/C++ compiler and build-tool packages.                                                                                                |
-| ClickHouse     | Follow [ClickHouse installation](https://clickhouse.com/docs/get-started/setup/install) for your platform, including the [Debian/Ubuntu server and client guide](https://clickhouse.com/docs/get-started/setup/self-managed/debian-ubuntu). Start the service and create a dedicated database and user before running setup. A working client command alone does not mean the server is ready. |
-| SQLite         | Ubuntu/Debian: `sudo apt install sqlite3`. On macOS, check `sqlite3 --version` first. Other platforms: use your package manager or the [SQLite command-line tools downloads](https://www.sqlite.org/download.html). No SQLite server needs to be started.                                                                                                                                      |
-| Git (optional) | [Git installation](https://git-scm.com/downloads/). Required for cloning and `./update.sh`; source archives can use redeploy instead.                                                                                                                                                                                                                                                          |
+| Dependency | Installation instructions |
+| --- | --- |
+| Node.js | [Official download and installation options](https://nodejs.org/en/download). Select Node **26**, version **26.2 or newer**; the default LTS selection may be a different major. With an existing nvm installation, run `nvm install` and `nvm use` from this checkout. |
+| pnpm | After Node is active, run `npm install -g pnpm@10.28.1`. See [pnpm 10 installation](https://pnpm.io/10.x/installation). Avoid an unpinned `latest` install. |
+| Rust / Cargo | Follow [rustup installation](https://rust-lang.org/tools/install/), then run `rustup toolchain install 1.95.0 --profile minimal`. This checkout selects its toolchain through `rust-toolchain.toml`. |
+| Build tools | Ubuntu/Debian: install `build-essential` through apt. macOS: run `xcode-select --install`; see [Apple Command Line Tools](https://developer.apple.com/documentation/xcode/installing-the-command-line-tools/). Other Linux distributions: install their C/C++ compiler and build-tool packages. |
+| ClickHouse | Follow [ClickHouse installation](https://clickhouse.com/docs/get-started/setup/install) for your platform, including the [Debian/Ubuntu server and client guide](https://clickhouse.com/docs/get-started/setup/self-managed/debian-ubuntu). Start the service and create a dedicated database and user before running setup. A working client command alone does not mean the server is ready. |
+| SQLite | Ubuntu/Debian: `sudo apt install sqlite3`. On macOS, check `sqlite3 --version` first. Other platforms: use your package manager or the [SQLite command-line tools downloads](https://www.sqlite.org/download.html). No SQLite server needs to be started. |
+| Git (optional) | [Git installation](https://git-scm.com/downloads/). Required for cloning and `./update.sh`; source archives can use redeploy instead. |
 
-For example, on Ubuntu/Debian (including an Ubuntu WSL2 installation), the base
-packages can be installed with:
+For example, on Ubuntu/Debian (including an Ubuntu WSL2 installation), the base packages can be installed with:
 
 ```sh
 sudo apt update
 sudo apt install build-essential sqlite3 git ca-certificates curl
 ```
 
-This command installs only those base packages. Install Node, pnpm, Rust, and
-ClickHouse separately using the links above. Follow your Node installation's
-permissions guidance if a global npm install is denied; run OwlEye itself as
-your regular installation user rather than with sudo. On WSL2, install and run
-the tools inside the Linux distribution.
+This command installs only those base packages. Install Node, pnpm, Rust, and ClickHouse separately using the links above. Follow your Node installation's permissions guidance if a global npm install is denied; run OwlEye itself as your regular installation user rather than with sudo. On WSL2, install and run the tools inside the Linux distribution.
 
-After installation, reopen your terminal so updated PATH entries take effect,
-return to the public checkout, and run:
+After installation, reopen your terminal so updated PATH entries take effect, return to the public checkout, and run:
 
 ```sh
 ./setup.sh --check
 ./setup.sh
 ```
 
-`--check` checks CLI availability and the required Node, pnpm, and Rust versions;
-it does not validate the complete build toolchain, ClickHouse connectivity or
-credentials. Normal setup checks the ClickHouse connection before collecting
-administrator credentials, and the build verifies the native toolchain. No
-configuration or administrator account is created by `--check`.
+`--check` checks CLI availability and the required Node, pnpm, and Rust versions; it does not validate the complete build toolchain, ClickHouse connectivity or credentials. Normal setup checks the ClickHouse connection before collecting administrator credentials, and the build verifies the native toolchain. No configuration or administrator account is created by `--check`.
 
 ## Setup
 
@@ -79,14 +65,14 @@ Setup collects the port (default **8527**), listen IP (default `127.0.0.1`), pub
 
 The optional prompts cover:
 
-| Configuration                   | Purpose                                                                                                                                                                                                                                                        |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OWLEYE_MAXMIND_DB`             | Absolute path to a locally maintained MaxMind GeoLite2-City `.mmdb` file. **Location data cannot be tracked without it.** Obtain and update the file using your own MaxMind account; license keys are not needed by the API. Redeploy after changing the file. |
-| `OPENROUTER_API_KEY`            | Enables AI. Operator/provider charges may apply; OwlEye imposes no prompt allowance. Without a key, Console explicitly reports AI unavailable.                                                                                                                 |
-| `OWLEYE_AI_MODEL`               | OpenRouter model identifier; defaults to `z-ai/glm-5.2`.                                                                                                                                                                                                       |
-| `OWLEYE_AI_CLICKHOUSE_URL`      | Optional restricted read-only ClickHouse connection used by AI queries.                                                                                                                                                                                        |
-| `OWLEYE_TRUSTED_PROXIES`        | Comma-separated CIDRs for immediate reverse proxies. Leave empty when connecting directly. Forwarded addresses are ignored from other peers.                                                                                                                   |
-| `OWLEYE_ALLOW_LOOPBACK_ORIGINS` | Allow SDK traffic from localhost for development.                                                                                                                                                                                                              |
+| Configuration | Purpose |
+| --- | --- |
+| `OWLEYE_MAXMIND_DB` | Absolute path to a locally maintained MaxMind GeoLite2-City `.mmdb` file. **Location data cannot be tracked without it.** Obtain and update the file using your own MaxMind account; license keys are not needed by the API. Redeploy after changing the file. |
+| `OPENROUTER_API_KEY` | Enables AI. Operator/provider charges may apply; OwlEye imposes no prompt allowance. Without a key, Console explicitly reports AI unavailable. |
+| `OWLEYE_AI_MODEL` | OpenRouter model identifier; defaults to `z-ai/glm-5.2`. |
+| `OWLEYE_AI_CLICKHOUSE_URL` | Optional restricted read-only ClickHouse connection used by AI queries. |
+| `OWLEYE_TRUSTED_PROXIES` | Comma-separated CIDRs for immediate reverse proxies. Leave empty when connecting directly. Forwarded addresses are ignored from other peers. |
+| `OWLEYE_ALLOW_LOOPBACK_ORIGINS` | Allow SDK traffic from localhost for development. |
 
 Setup generates `OWLEYE_HASH_SALT`, sets `SQLITE_URL` to `.owleye/owleye.sqlite`, verifies ClickHouse connectivity, builds Console and API, and creates the sole workspace and administrator. It starts Rust in the background on the selected port. Console and APIs use the same origin; no Node server runs in production. HTTP is suitable for local development; HTTPS origins automatically use Secure session cookies. The public origin must match the URL you open in your browser.
 
@@ -100,18 +86,9 @@ Once `.owleye/config.json` exists, a normal `./setup.sh` run exits with status 1
 Already configured. Nothing was reset or restarted. Run ./redeploy.sh; setup never overwrites credentials.
 ```
 
-It does not ask to reset, replace the administrator, change credentials or data,
-or stop/restart the existing server. The existing-configuration check runs before
-prerequisite commands or deployment-lock acquisition, so normal setup exits
-immediately even if dependencies are missing or a deployment lock already exists.
-Use `./redeploy.sh` to rebuild/restart or `./update.sh` to pull and redeploy.
-`./setup.sh --check` remains a non-installing check on an existing installation.
+It does not ask to reset, replace the administrator, change credentials or data, or stop/restart the existing server. The existing-configuration check runs before prerequisite commands or deployment-lock acquisition, so normal setup exits immediately even if dependencies are missing or a deployment lock already exists. Use `./redeploy.sh` to rebuild/restart or `./update.sh` to pull and redeploy. `./setup.sh --check` remains a non-installing check on an existing installation.
 
-If the first attempt saved configuration but failed during server startup,
-inspect `.owleye/server.log`, correct the configuration and run redeploy. If an
-attempt failed before saving configuration, setup can prompt again; do not
-delete existing database files or configuration to force a fresh install. An
-administrator recovery is a separate, explicit operation described below.
+If the first attempt saved configuration but failed during server startup, inspect `.owleye/server.log`, correct the configuration and run redeploy. If an attempt failed before saving configuration, setup can prompt again; do not delete existing database files or configuration to force a fresh install. An administrator recovery is a separate, explicit operation described below.
 
 If all administrator credentials are lost, run `./setup.sh --recover-admin` locally as the installation owner. It asks for an existing administrator email and a new password, revokes their sessions and authenticator setup, and never creates or promotes an account. This requires access to the private configuration and database. Sign in and reconfigure the authenticator afterward if desired.
 
@@ -145,55 +122,24 @@ Use your server origin as the SDK endpoint, for example `https://analytics.examp
 
 ### Publishing the SDK
 
-The release workflow publishes only `packages/analytics`; npm displays that
-folder's SDK README and includes its license. The root package is private and is
-not published. Author metadata identifies Shrinath, hello@shrinath.me, and
-https://owleye.dev. README updates appear on npm with a new package version.
+The release workflow publishes only `packages/analytics`; npm displays that folder's SDK README and includes its license. The root package is private and is not published. Author metadata identifies Shrinath, hello@shrinath.me, and https://owleye.dev. README updates appear on npm with a new package version.
 
 Before publishing a GitHub release:
 
-1. Commit and push the complete public source, lockfile, and
-   `.github/workflows/release-sdk.yml` to the **public**
-   `shrinathprabhu/owleye` repository. A release tag must point to that commit;
-   uncommitted files are not included. The workflow must be enabled in Actions.
-2. Using an npm account with administration rights for `@owleye/analytics`, open
-   its package settings and add a GitHub Actions trusted publisher:
+1. Commit and push the complete public source, lockfile, and `.github/workflows/release-sdk.yml` to the **public** `shrinathprabhu/owleye` repository. A release tag must point to that commit; uncommitted files are not included. The workflow must be enabled in Actions.
+2. Using an npm account with administration rights for `@owleye/analytics`, open its package settings and add a GitHub Actions trusted publisher:
    - Organization/user: `shrinathprabhu`
    - Repository: `owleye`
    - Workflow filename: `release-sdk.yml` (no directory prefix)
    - Environment: `npm-publish`
    - Allowed actions: **allow direct `npm publish`**, not only staged publishing.
-3. Create the matching GitHub environment `npm-publish`. Any environment tag
-   restrictions must allow the release tag; approve the job if required reviewers
-   are configured. This workflow needs no npm token secret.
-4. Use an unused package version. The initial tag is `v1.0.0` (also accepted:
-   `@owleye/analytics@1.0.0`) and must match `packages/analytics/package.json`.
-   For subsequent releases, bump that manifest before committing and tagging.
-   Published npm versions cannot be overwritten, including after a README edit.
-5. Publish the GitHub release; a draft or a tag push alone does not trigger this
-   workflow. It builds, tests, checks bundle sizes and package contents, then
-   publishes from the SDK directory. Prereleases use npm's `next` tag; other
-   releases use `latest`.
-6. Check the successful Actions run, then the npm package version, SDK README,
-   source link and provenance attestation. Confirm all three versioned CDN files
-   become available; CDN caches can take time to update. A failed run before
-   publishing can be rerun after fixing configuration. Check npm first if the
-   publish outcome is uncertain; a successful version must not be republished.
+3. Create the matching GitHub environment `npm-publish`. Any environment tag restrictions must allow the release tag; approve the job if required reviewers are configured. This workflow needs no npm token secret.
+4. Use an unused package version. The initial tag is `v1.0.0` (also accepted: `@owleye/analytics@1.0.0`) and must match `packages/analytics/package.json`. For subsequent releases, bump that manifest before committing and tagging. Published npm versions cannot be overwritten, including after a README edit.
+5. Publish the GitHub release; a draft or a tag push alone does not trigger this workflow. It builds, tests, checks bundle sizes and package contents, then publishes from the SDK directory. Prereleases use npm's `next` tag; other releases use `latest`.
+6. Check the successful Actions run, then the npm package version, SDK README, source link and provenance attestation. Confirm all three versioned CDN files become available; CDN caches can take time to update. A failed run before publishing can be rerun after fixing configuration. Check npm first if the publish outcome is uncertain; a successful version must not be republished.
 
-The workflow uses a GitHub-hosted runner, Node 26, npm 11.5.1 or newer,
-`id-token: write`, and `npm publish --access public --provenance`. npm verifies the
-OIDC publisher against the repository, workflow and environment. Source metadata
-must continue to point to the public repository. The package must already exist
-and be managed by your npm account before configuring this trusted publisher.
-See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and
-[npm package READMEs](https://docs.npmjs.com/about-package-readme-files/).
+The workflow uses a GitHub-hosted runner, Node 26, npm 11.5.1 or newer, `id-token: write`, and `npm publish --access public --provenance`. npm verifies the OIDC publisher against the repository, workflow and environment. Source metadata must continue to point to the public repository. The package must already exist and be managed by your npm account before configuring this trusted publisher. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and [npm package READMEs](https://docs.npmjs.com/about-package-readme-files/).
 
 ### Analytics and Console storage
 
-The [SDK privacy section](../packages/analytics/README.md#visitor-identification-and-browser-storage)
-describes the server-derived visitor identifiers and the SDK's lack of browser
-storage. Console authentication uses cookies; tab coordination uses localStorage
-without user IDs or credentials. Neither mechanism identifies analytics visitors.
-If your reverse proxy adds access logging or cookies, review that configuration
-separately from OwlEye. CDN delivery also makes a request to the CDN provider;
-serve the pinned SDK files yourself if you want to avoid that external request.
+The [SDK privacy section](../packages/analytics/README.md#visitor-identification-and-browser-storage) describes the server-derived visitor identifiers and the SDK's lack of browser storage. Console authentication uses cookies; tab coordination uses localStorage without user IDs or credentials. Neither mechanism identifies analytics visitors. If your reverse proxy adds access logging or cookies, review that configuration separately from OwlEye. CDN delivery also makes a request to the CDN provider; serve the pinned SDK files yourself if you want to avoid that external request.

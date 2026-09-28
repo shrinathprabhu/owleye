@@ -240,7 +240,7 @@ async function handleInviteDecision(
             ClickHouse preview queries land.
           </p>
         </div>
-        <span>HONEST<br />EMPTY<br />STATE</span>
+        <span>HONEST EMPTY STATE</span>
       </section>
 
       <section
@@ -773,6 +773,8 @@ button:disabled {
 
 .availability-banner > span {
   display: grid;
+  padding: 14px;
+  text-wrap: balance;
   width: 92px;
   height: 92px;
   flex: 0 0 auto;
@@ -1116,10 +1118,6 @@ button:disabled {
     height: auto;
     border-radius: 999px;
     padding: 7px 10px;
-  }
-
-  .availability-banner > span br {
-    display: none;
   }
 
   .widget-grid,

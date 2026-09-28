@@ -206,7 +206,7 @@ function renderChart() {
         formatter: (rawParams: unknown) => {
           const { marker, name, percent, value } =
             rawParams as DonutTooltipParams;
-          return `${marker}${escapeHtml(name)}<br><strong>${Number(value).toLocaleString()}</strong> ${props.metricLabel.toLowerCase()}${props.metricLabel === "Page views" ? ` · ${percent}%` : ""}`;
+          return `<div>${marker}${escapeHtml(name)}</div><div><strong>${Number(value).toLocaleString()}</strong> ${props.metricLabel.toLowerCase()}${props.metricLabel === "Page views" ? ` · ${percent}%` : ""}</div>`;
         },
         textStyle: {
           color: colors.tooltipText,

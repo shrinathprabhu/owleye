@@ -275,11 +275,11 @@ function isActive(path: string) {
       </nav>
       <p class="sidebar-note">
         <template v-if="demo">
-          Privacy-first analytics.<br />API-backed results.<br />Read-only
-          actions stay read-only.
+          Privacy-first analytics. API-backed results. Read-only actions stay
+          read-only.
         </template>
         <template v-else>
-          Cookie-free analytics<br />on infrastructure you control.
+          Cookie-free analytics on infrastructure you control.
         </template>
       </p>
 

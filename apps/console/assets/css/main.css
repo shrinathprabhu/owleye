@@ -2634,3 +2634,12 @@ a {
     background-position: -220% 0;
   }
 }
+
+/* Let prose adapt to the viewport instead of inserting presentational breaks. */
+:where(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+:where(p) {
+  text-wrap: pretty;
+}

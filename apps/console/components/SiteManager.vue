@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { apiErrorMessage as requestError } from "~/utils/apiError";
 import { routes } from "~/utils/routes";
+import { browserTimezone } from "~/utils/timezones";
 
 type ManagedSite = {
   created_at: string;
@@ -39,6 +40,9 @@ const { api } = useApi();
 const createName = ref("");
 const createDomain = ref("");
 const createTimezone = ref("UTC");
+onMounted(() => {
+  createTimezone.value = browserTimezone();
+});
 const createPending = ref(false);
 const createError = ref("");
 const createNotice = ref("");
@@ -284,17 +288,7 @@ function isCurrentSite(siteId: string, context: number) {
               spellcheck="false"
             />
           </label>
-          <label>
-            <span>Timezone</span>
-            <input
-              v-model="createTimezone"
-              autocomplete="off"
-              maxlength="128"
-              placeholder="UTC"
-              required
-              spellcheck="false"
-            />
-          </label>
+          <TimezoneSelect v-model="createTimezone" />
         </div>
         <button class="button primary" :disabled="createPending" type="submit">
           {{ createPending ? "Creating…" : "Create app" }}
@@ -335,15 +329,7 @@ function isCurrentSite(siteId: string, context: number) {
               spellcheck="false"
             />
           </label>
-          <label>
-            <span>Timezone</span>
-            <input
-              v-model="editTimezone"
-              maxlength="128"
-              required
-              spellcheck="false"
-            />
-          </label>
+          <TimezoneSelect v-model="editTimezone" />
         </div>
         <p class="field-help">
           Changing the primary domain keeps it in the allowed-domain list.

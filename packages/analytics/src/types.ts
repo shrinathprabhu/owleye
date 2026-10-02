@@ -45,15 +45,14 @@ export interface OwlConfig {
    */
   captureHash?: boolean;
   /**
-   * Disable tracking when the browser sends a Do Not Track signal.
-   *
-   * @default true
+   * @deprecated Do Not Track is obsolete and is no longer consulted.
+   * Retained as an ignored option for source compatibility.
    */
   respectDoNotTrack?: boolean;
   /**
    * Disable tracking when the browser enables Global Privacy Control.
-   * OwlEye's API may independently enforce this signal even when this
-   * browser-side check is explicitly disabled.
+   * This is a browser-side check; the ingestion API does not filter requests
+   * based on DNT or Sec-GPC headers.
    *
    * @default true
    */

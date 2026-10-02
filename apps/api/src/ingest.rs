@@ -44,17 +44,8 @@ pub(crate) async fn ingest_event(
             "Event tracking is paused for this site".to_owned(),
         ));
     }
-    if has_privacy_signal(&headers) {
-        return Ok((
-            StatusCode::ACCEPTED,
-            Json(json!({
-                "accepted": 0,
-                "event_ids": [],
-                "status": "privacy_signal_honored"
-            })),
-        ));
-    }
-
+    // Browser privacy choices are applied by the SDK before it sends events.
+    // Ingestion applies the same validation and storage policy to every request.
     let user_agent_header = headers
         .get("user-agent")
         .and_then(|value| value.to_str().ok());
@@ -179,17 +170,6 @@ fn build_event_row(
     )
 }
 
-fn has_privacy_signal(headers: &HeaderMap) -> bool {
-    ["dnt", "sec-gpc"].iter().any(|name| {
-        headers.get_all(*name).iter().any(|value| {
-            value
-                .to_str()
-                .ok()
-                .is_some_and(|value| value.split(',').any(|value| value.trim() == "1"))
-        })
-    })
-}
-
 async fn authorize_ingest(
     state: &AppState,
     headers: &HeaderMap,
@@ -227,27 +207,5 @@ async fn authorize_ingest(
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::http::{HeaderMap, HeaderValue};
-
-    use super::has_privacy_signal;
-
-    #[test]
-    fn dnt_and_global_privacy_control_are_honored() {
-        let mut headers = HeaderMap::new();
-        assert!(!has_privacy_signal(&headers));
-
-        headers.insert("dnt", HeaderValue::from_static("1"));
-        assert!(has_privacy_signal(&headers));
-
-        headers.remove("dnt");
-        headers.insert("sec-gpc", HeaderValue::from_static("1"));
-        assert!(has_privacy_signal(&headers));
-
-        headers.insert("sec-gpc", HeaderValue::from_static("0"));
-        assert!(!has_privacy_signal(&headers));
-
-        headers.append("sec-gpc", HeaderValue::from_static("1"));
-        assert!(has_privacy_signal(&headers));
-    }
-}
+#[path = "ingest_tests.rs"]
+pub(crate) mod tests;

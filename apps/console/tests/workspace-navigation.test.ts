@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import { runInNewContext } from "node:vm";
 import test, { type TestContext } from "node:test";
 import { computed, effectScope, reactive, ref, watch } from "vue";
 import { useConsoleWorkspace } from "../composables/useConsoleWorkspace.ts";
@@ -288,4 +291,72 @@ test("a rejected catalog request does not recursively revalidate", async (t) => 
   assert.equal(workspace.sites.value.length, 0);
   assert.equal(workspace.loading.value, false);
   assert.deepEqual(h.calls(), { sessionCalls: 2, siteCalls: 2 });
+});
+
+test("creating an app refreshes the cached catalog before opening its settings", async (t) => {
+  const h = harness(t);
+  const previous = h.mount();
+  await previous.workspace.initialize();
+  await previous.workspace.selectSite("owl_two");
+  previous.stop();
+
+  h.route.path = "/app/create";
+  h.route.query = {};
+  h.route.meta = { siteScoped: false };
+  const creation = h.mount();
+  const catalog = deferred<WorkspaceSite[]>();
+  h.setSites(() => catalog.promise);
+
+  // Exercise the actual page handler against the real workspace composable.
+  const source = readFileSync(
+    new URL("../pages/app/create.vue", import.meta.url),
+    "utf8",
+  ).match(/<script setup lang="ts">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(source);
+  const changed = runInNewContext(`${stripTypeScriptTypes(source)}; changed;`, {
+    definePageMeta: () => {},
+    useHead: () => {},
+    useConsoleWorkspace: () => creation.workspace,
+    navigateTo: async ({
+      path,
+      query,
+    }: {
+      path: string;
+      query: Record<string, string>;
+    }) => {
+      h.route.path = path;
+      h.route.query = query;
+      h.route.meta = {};
+    },
+  }) as (trackingId?: string) => Promise<void>;
+
+  await changed();
+  assert.equal(h.route.path, "/app/create");
+  const completion = changed("owl_new");
+  await new Promise(setImmediate);
+  assert.equal(h.route.path, "/app/create", "wait for the refreshed catalog");
+  assert.equal(creation.workspace.selectedSite.value?.id, "two");
+  catalog.resolve([site(), site("two"), site("new")]);
+  await completion;
+  assert.equal(h.route.path, "/settings");
+  assert.equal(h.route.query.site, "owl_new");
+  creation.stop();
+
+  const settings = h.mount();
+  settings.workspace.prepareForNavigation();
+  await settings.workspace.initialize({ force: false });
+  assert.equal(settings.workspace.selectedSite.value?.id, "new");
+  assert.equal(settings.workspace.permissions.value.settings_manage, true);
+  assert.deepEqual(h.states.get("console-last-site-selection")?.value, {
+    userId: "owner",
+    siteId: "owl_new",
+  });
+  assert.deepEqual(h.calls(), { sessionCalls: 2, siteCalls: 2 });
+
+  settings.stop();
+  h.route.path = "/events";
+  h.route.query = {};
+  const events = h.mount();
+  events.workspace.prepareForNavigation();
+  assert.equal(events.workspace.selectedSite.value?.id, "new");
 });

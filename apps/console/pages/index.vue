@@ -123,8 +123,8 @@ async function handleOnboardingChanged() {
 }
 
 async function finishOnboarding(trackingId: string) {
-  await router.replace({ query: { ...route.query, site: trackingId } });
   await workspace.initialize();
+  await workspace.selectSite(trackingId);
   if (normalizedSiteId.value) await refreshStats();
 }
 

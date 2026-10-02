@@ -14,9 +14,7 @@ export function createEmitter(siteId: string, config?: OwlConfig): Emitter {
   const normalizedSiteId = assertSiteId(siteId);
   const normalized = normalizeConfig(config);
   const enabled =
-    (!normalized.respectDoNotTrack || !hasDoNotTrackSignal()) &&
-    (!normalized.respectGlobalPrivacyControl ||
-      !hasGlobalPrivacyControlSignal());
+    !normalized.respectGlobalPrivacyControl || !hasGlobalPrivacyControlSignal();
 
   if (!enabled && normalized.debug) {
     debugLog("tracking disabled by a browser privacy signal");
@@ -126,27 +124,6 @@ interface DeliveryBudget {
   bytes: number;
   tokens: number;
   updated: number;
-}
-
-function hasDoNotTrackSignal(): boolean {
-  if (typeof navigator === "undefined") return false;
-
-  const legacyNavigator = navigator as Navigator & {
-    msDoNotTrack?: string;
-  };
-  const legacyWindow =
-    typeof window === "undefined"
-      ? undefined
-      : (window as Window & { doNotTrack?: string });
-  const values = [
-    navigator.doNotTrack,
-    legacyNavigator.msDoNotTrack,
-    legacyWindow?.doNotTrack,
-  ];
-
-  return values.some(
-    (value) => value === "1" || value?.toLowerCase() === "yes",
-  );
 }
 
 function hasGlobalPrivacyControlSignal(): boolean {

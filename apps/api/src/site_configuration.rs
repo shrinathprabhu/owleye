@@ -81,7 +81,7 @@ pub(crate) async fn get_site_configuration(
                 ai_enabled: false,
                 data_retention_days: None,
                 domain: site.domain.to_owned(),
-                honor_privacy_signals: true,
+                honor_privacy_signals: false,
                 id: site.id.to_owned(),
                 name: site.name.to_owned(),
                 privacy_contact_email: None,
@@ -247,7 +247,7 @@ async fn response_for_site(
             COALESCE(site_settings.tracking_paused, 0) AS tracking_paused,
             COALESCE(site_settings.ai_enabled, 0) AS ai_enabled,
             NULL AS data_retention_days,
-            1 AS honor_privacy_signals,
+            0 AS honor_privacy_signals,
             NULLIF(site_settings.privacy_contact_email, '') AS privacy_contact_email
         FROM sites
         LEFT JOIN site_settings ON site_settings.site_id = sites.id

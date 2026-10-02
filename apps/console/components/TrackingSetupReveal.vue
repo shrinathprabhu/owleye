@@ -98,6 +98,7 @@ async function copyTrackingSnippet() {
             >CDN setup, manual events, campaigns, rules, and performance ↗</a
           >
         </p>
+        <TrackingAssistantPrompt :site-id="siteId" :api-base="apiBase" />
         <p v-if="copyState === 'failed'" role="status">
           Clipboard access was blocked. Select the code and copy it manually.
         </p>

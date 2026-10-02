@@ -738,38 +738,25 @@ test("bounds opted-in page fields to the ingestion contract", async () => {
   assert.ok(Buffer.byteLength(pageView.page.url) <= 4_096);
 });
 
-test("honors Do Not Track by default, including rules, with an explicit override", async () => {
+test("obsolete DNT settings do not suppress analytics", async () => {
   installBrowser("https://app.example/", undefined, "1");
+  navigator.msDoNotTrack = "1";
+  window.doNotTrack = "yes";
   const requests = captureRequests();
   const { useAnalytics } = await analyticsModule;
-  const { trackRules } = await rulesModule;
-  let hookCalls = 0;
 
-  const disabledAnalytics = useAnalytics("site_test", {
+  const analytics = useAnalytics("site_test", {
+    respectDoNotTrack: true,
     server: "https://api.example",
   });
-  const disabledRules = trackRules("site_test", {
-    enrichRule() {
-      hookCalls += 1;
-      return { allowed: true };
-    },
-    server: "https://api.example",
-  });
-  disabledAnalytics.track("ignored");
-  disabledAnalytics.stop();
-  disabledRules.stop();
+  analytics.track("dnt_does_not_block");
+  analytics.stop();
   await flush();
 
-  assert.equal(requests.calls.length, 0);
-  assert.equal(hookCalls, 0);
-
-  const enabledAnalytics = useAnalytics("site_test", {
-    respectDoNotTrack: false,
-    server: "https://api.example",
-  });
-  enabledAnalytics.stop();
-  await flush();
-  assert.equal(requestEvents(requests.calls).length, 1);
+  assert.deepEqual(
+    requestEvents(requests.calls).map((event) => event.type),
+    ["pageview", "external"],
+  );
 });
 
 test("honors Global Privacy Control by default with an explicit SDK override", async () => {

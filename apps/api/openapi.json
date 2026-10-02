@@ -959,7 +959,7 @@
           },
           "status": {
             "type": "string",
-            "enum": ["accepted", "privacy_signal_honored"]
+            "enum": ["accepted"]
           }
         }
       }

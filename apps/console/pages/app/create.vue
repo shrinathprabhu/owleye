@@ -9,10 +9,14 @@ definePageMeta({
   },
 });
 useHead({ title: "Create app · OWLEYE" });
+const workspace = useConsoleWorkspace();
 
 async function changed(trackingId?: string) {
   if (trackingId) {
-    await navigateTo({ path: "/", query: { site: trackingId } });
+    // Load the new app before a site-scoped page validates its query selection.
+    await workspace.initialize();
+    await workspace.selectSite(trackingId);
+    await navigateTo({ path: "/settings", query: { site: trackingId } });
   }
 }
 </script>

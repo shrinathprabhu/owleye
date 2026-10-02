@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { apiErrorMessage as requestError } from "~/utils/apiError";
 import { routes } from "~/utils/routes";
+import { browserTimezone } from "~/utils/timezones";
 import { trackingSetupSnippet } from "~/utils/trackingSnippet";
 
 type OnboardingStep = "create_site" | "two_factor";
@@ -35,6 +36,10 @@ const setupUri = ref("");
 const authenticatorCode = ref("");
 const appName = ref("");
 const domains = ref("");
+const timezone = ref("UTC");
+onMounted(() => {
+  timezone.value = browserTimezone();
+});
 const createdSite = ref<CreatedSite | null>(null);
 const pending = ref(false);
 const error = ref("");
@@ -89,6 +94,7 @@ async function createFirstApp() {
     createdSite.value = await api<CreatedSite>(routes.sites.list, {
       body: {
         domains: domains.value,
+        timezone: timezone.value,
         name: appName.value,
       },
       method: "POST",
@@ -254,6 +260,7 @@ async function run(action: () => Promise<void>, fallback: string) {
             URLs or hostnames to restrict tracking to those domains. Paths and
             query strings are not accepted.
           </p>
+          <TimezoneSelect v-model="timezone" />
           <button class="button primary" :disabled="pending" type="submit">
             {{ pending ? "Creating…" : "Create my app" }}
           </button>
@@ -305,6 +312,10 @@ async function run(action: () => Promise<void>, fallback: string) {
               >CDN setup, manual events, campaigns, rules, and performance ↗</a
             >
           </p>
+          <TrackingAssistantPrompt
+            :site-id="createdSite.tracking_id"
+            :api-base="apiBase"
+          />
           <p v-if="copyState === 'failed'" role="status">
             Clipboard access was blocked. Select and copy the snippet manually.
           </p>

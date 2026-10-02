@@ -48,14 +48,14 @@ Load the dependency-free CDN build with your site ID. Pin a published version in
 </script>
 ```
 
-The default SDK excludes URL query strings and fragments, writes no cookies, `localStorage`, or `sessionStorage`, omits request credentials, and respects both Do Not Track (DNT) and Global Privacy Control (GPC). Optional entrypoints keep rule tracking and performance tracking out of the main bundle:
+The default SDK excludes URL query strings and fragments, writes no cookies, `localStorage`, or `sessionStorage`, omits request credentials, and suppresses tracking for Global Privacy Control (GPC) by default. Do Not Track (DNT) is no longer consulted. Optional entrypoints keep rule tracking and performance tracking out of the main bundle:
 
 ```ts
 import { trackPerf } from "@owleye/analytics/performance";
 import { trackRules } from "@owleye/analytics/rules";
 ```
 
-Import `trackWebVitals` from `@owleye/analytics/performance` to opt into PerformanceObserver estimates. The pre-release `performance: true` core option has been removed so the core bundle actually excludes the optional collector. These estimates are marked `approximate: true`; they do not implement the full reference Web Vitals algorithms and must not be presented as CrUX-equivalent CLS or INP scores. The standalone performance entrypoint enables those field metrics automatically and also exposes manual spans. Measurements obey the same DNT/GPC, URL-redaction, origin and privacy controls as other events. `captureCampaigns: true` retains only `utm_source`, `utm_medium`, and `utm_campaign`; unrelated query parameters remain excluded.
+Import `trackWebVitals` from `@owleye/analytics/performance` to opt into PerformanceObserver estimates. The pre-release `performance: true` core option has been removed so the core bundle actually excludes the optional collector. These estimates are marked `approximate: true`; they do not implement the full reference Web Vitals algorithms and must not be presented as CrUX-equivalent CLS or INP scores. The standalone performance entrypoint enables those field metrics automatically and also exposes manual spans. Measurements obey the same SDK GPC, URL-redaction, origin and privacy controls as other events. `captureCampaigns: true` retains only `utm_source`, `utm_medium`, and `utm_campaign`; unrelated query parameters remain excluded.
 
 Create the site in the console first. Allowed domains are optional: leave them blank to allow all browser origins, or add multiple domains to restrict tracking and rule delivery to matching hosts. Use the public tracking ID in browser code; keep API/developer secrets on your server. Verify `POST /v1/events` in the Network panel and check the response's `accepted` count: HTTP 202 can also acknowledge a privacy opt-out with zero events. Then confirm the event in the console. See the [quickstart](https://owleye.dev/docs/quickstart/) for framework setup and troubleshooting.
 
@@ -77,7 +77,7 @@ analytics.stop();
 
 Create the optional rule and performance trackers only after that same decision; `autoStart` controls the automatic page-analytics entrypoint, not explicit optional entrypoints.
 
-For consent-gated CDN usage, add `data-owleye-auto-start="false"` and later call `window.OwlEyeAnalytics.start()`. `respectDoNotTrack` and `respectGlobalPrivacyControl` both default to `true`. Disabling the SDK's GPC check does not override any server-side privacy-signal enforcement.
+For consent-gated CDN usage, add `data-owleye-auto-start="false"` and later call `window.OwlEyeAnalytics.start()`. `respectGlobalPrivacyControl` defaults to `true`. The SDK checks the browser setting before sending events; the ingestion API does not filter `DNT` or `Sec-GPC` headers. `respectDoNotTrack` is a deprecated, ignored compatibility option. Server-side senders must apply the appropriate collection choices before submitting events.
 
 ## CDN campaigns, custom data, rules, and performance
 
@@ -219,8 +219,8 @@ All configuration fields are optional. Pass an `OwlConfig` object as the second 
 | `captureQuery` | `boolean` | `false` | Include full query strings in page and referrer fields. Takes precedence over `captureCampaigns`; query strings may contain sensitive information. |
 | `captureCampaigns` | `boolean` | `false` | Include only `utm_source`, `utm_medium`, and `utm_campaign` from the current URL. Does not persist attribution after the parameters disappear. |
 | `captureHash` | `boolean` | `false` | Include URL fragments in page and referrer fields. Fragments may contain sensitive information. |
-| `respectDoNotTrack` | `boolean` | `true` | Disable tracking when the browser sends a Do Not Track signal. |
-| `respectGlobalPrivacyControl` | `boolean` | `true` | Disable tracking when the browser enables Global Privacy Control. Disabling this check does not override API-side enforcement. |
+| `respectDoNotTrack` | `boolean` | Ignored | Deprecated compatibility option; DNT does not disable tracking. |
+| `respectGlobalPrivacyControl` | `boolean` | `true` | Disable tracking when the browser enables Global Privacy Control. This check runs in the SDK only; the ingestion API does not enforce the header. |
 | `server` | `string \| URL` | `https://api.owleye.dev` | Override the API base with an absolute HTTP(S) URL or same-origin path. Credentials, query strings, and fragments are not allowed. |
 | `enrichRule` | `RuleEnricher` | Unset | `trackRules` only: synchronously return custom fields from `(rule, context)`, or return nothing. The context contains `element`, optional `event`, and interaction `type`. |
 
@@ -240,7 +240,6 @@ Set the corresponding attributes on each bundle's script tag. Omitted attributes
 | `captureQuery` | `data-owleye-capture-query` |
 | `captureCampaigns` | `data-owleye-capture-campaigns` |
 | `captureHash` | `data-owleye-capture-hash` |
-| `respectDoNotTrack` | `data-owleye-respect-do-not-track` |
 | `respectGlobalPrivacyControl` | `data-owleye-respect-global-privacy-control` |
 | `server` | `data-owleye-server` |
 | `enrichRule` | Not available as an HTML attribute; use the module API. |

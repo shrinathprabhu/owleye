@@ -28,7 +28,6 @@ export interface NormalizedConfig {
   captureQuery: boolean;
   debug: boolean;
   mock: boolean;
-  respectDoNotTrack: boolean;
   respectGlobalPrivacyControl: boolean;
   server: string;
 }
@@ -41,7 +40,6 @@ export function normalizeConfig(config: OwlConfig = {}): NormalizedConfig {
     captureQuery: Boolean(config.captureQuery),
     debug: Boolean(config.debug),
     mock: Boolean(config.mock),
-    respectDoNotTrack: config.respectDoNotTrack !== false,
     respectGlobalPrivacyControl: config.respectGlobalPrivacyControl !== false,
     server: normalizeServer(config.server),
   };
@@ -110,13 +108,6 @@ export function readScriptConfig(script: HTMLScriptElement | null): {
       ),
       debug: parseBoolean(readDataset(script, "owleyeDebug", "owlEyeDebug")),
       mock: parseBoolean(readDataset(script, "owleyeMock", "owlEyeMock")),
-      respectDoNotTrack: parseBoolean(
-        readDataset(
-          script,
-          "owleyeRespectDoNotTrack",
-          "owlEyeRespectDoNotTrack",
-        ),
-      ),
       respectGlobalPrivacyControl: parseBoolean(
         readDataset(
           script,

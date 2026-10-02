@@ -276,22 +276,12 @@ async function deleteSite() {
             <span>
               <strong>Browser privacy signals</strong>
               <small>
-                Events carrying Do Not Track or Global Privacy Control are
-                discarded before analytics are stored.
+                The SDK stops tracking for Global Privacy Control by default.
+                Do Not Track is no longer used. The API does not filter events
+                based on either header.
               </small>
             </span>
-            <span
-              class="status-badge"
-              :class="
-                settings.site.honor_privacy_signals ? 'success' : 'warning'
-              "
-            >
-              {{
-                settings.site.honor_privacy_signals
-                  ? "Always honored"
-                  : "Needs attention"
-              }}
-            </span>
+            <span class="status-badge">Handled by SDK</span>
           </div>
         </section>
       </div>

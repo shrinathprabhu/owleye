@@ -1,4 +1,5 @@
 import { guarded, safely, cleanup, reportFailure } from "./safety";
+import type { OwlConfig } from "../types";
 const NAVIGATION_EVENT = "owleye:navigation";
 
 const historyPatches = new WeakMap<History, HistoryPatch>();
@@ -10,6 +11,7 @@ export interface NavigationChange {
 
 export function onNavigation(
   callback: (change: NavigationChange) => void,
+  config?: OwlConfig,
 ): () => void {
   if (typeof window === "undefined") return () => undefined;
 
@@ -21,6 +23,11 @@ export function onNavigation(
     if (nextUrl === currentUrl) return;
     const previousUrl = currentUrl;
     currentUrl = nextUrl;
+    if (
+      config &&
+      navigationKey(previousUrl, config) === navigationKey(nextUrl, config)
+    )
+      return;
     callback({ from: previousUrl, to: nextUrl });
   });
   const remove = () =>
@@ -130,4 +137,14 @@ function createPatchedHistoryMethod(
     });
     return result;
   };
+}
+
+export function navigationKey(value: string, config: OwlConfig): string {
+  const url = new URL(value);
+  return (
+    url.origin +
+    url.pathname +
+    (config.trackQueryChanges ? url.search : "") +
+    (config.trackHashChanges ? url.hash : "")
+  );
 }

@@ -38,3 +38,28 @@ Reports:
 Presentation: chart=none unless explicitly requested. For trends use line, categories bar. Totals/funnels use none. PDF requests change only output=pdf; otherwise text. Do not invent links or files. Every schema field is required; unused arrays=[], unused dates/clarification=null.
 
 Examples: "How many users visited from India and UAE combined in first 6 months of 2026?" report=totals,metric=visitors,country=[IN,AE],period=custom,start_date=2026-01-01,end_date=2026-06-30. "How many users from Mumbai and NewYork clicked signup in last 3 days?" report=totals,metric=visitors,cities=[{city:Mumbai,country:IN},{city:New York,country:US}], events=[signup_clicked] ONLY if that is the unambiguous catalog event,days=3,period=rolling. "Was xyz successful: signups then paid?" Catalog has signup_completed and subscription_updated with property status but no values. Ask which subscription_updated.status value means paid. After reply "status=active", use funnel steps signup_completed then subscription_updated with properties=[{key:status,value:active}], campaigns=[xyz]. Preserve the original date range.
+
+
+Measurements: dataset defaults to events; measure=count. Ordinary events exclude performance and page_session. For Web Vitals and explicit spans use dataset=performance; for visible page durations use engagement; for server monitor checks use uptime. For mean/p50/p75/p95/total use metric=value. Performance numeric summaries MUST select exactly one recorded event name to avoid mixing CLS and milliseconds. CLS is unitless; other measurements are ms. Count uses metric=events. Page breakdown uses report=page. Uptime supports totals/daily/weekly/event (state breakdown), count or duration aggregates, with NO traffic filters; do not infer uptime percentage or outages from response latency. Engagement segments are not visits and visibility is not proof of attention. Unsupported filters or joins need clarification; never fabricate SQL or schema. Return every field including dataset and measure.
+
+Compact planning examples (use recorded names; clarify ambiguous mappings):
+1. Page views yesterday: events/totals, metric=pageviews, days=1, offset_days=1.
+2. Daily visitors last week: events/daily, visitors, period=last_week.
+3. Most triggered events: events/event, events.
+4. signup_completed count: events/totals, events=[signup_completed], metric=events.
+5. Mobile signup visitors: same, device=[mobile], metric=visitors.
+6. Signups with plan=pro: properties=[{key:plan,value:pro}] after catalog validation.
+7. Most visited pages: events/page, metric=pageviews.
+8. Campaign audience by country: events/country, campaigns=[requested name], visitors.
+9. Signup then purchase conversion: events/funnel, ordered catalog-backed steps.
+10. LCP p75: performance/totals, events=[web_vital_lcp], measure=p75, metric=value.
+11. Mobile LCP trend: performance/daily, events=[web_vital_lcp], device=[mobile], p75/value.
+12. CLS by page: performance/page, events=[web_vital_cls], p75/value (unitless).
+13. INP p95 on Safari: performance/totals, events=[web_vital_inp], browser=[Safari], p95/value.
+14. Average checkout span: performance/totals, events=[catalog span name], mean/value.
+15. FCP sample count: performance/totals, events=[web_vital_fcp], count/events.
+16. Total visible time by page: engagement/page, total/value. Not distinct sessions.
+17. Average visible segment duration: engagement/totals, mean/value.
+18. Monitor checks by state: uptime/event, count/events; no traffic filters.
+19. Daily monitor response p95: uptime/daily, p95/value; no traffic filters.
+20. Delete data or query another app: unsupported; never broaden scope.

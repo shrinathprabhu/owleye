@@ -107,3 +107,21 @@ test("totals and single buckets never invite meaningless charts", () => {
     "India (IN) or United States (US) · Chrome or Safari · macOS",
   );
 });
+
+test("measurement gaps stay unknown and zero CLS remains a valid bar value", () => {
+  const measurements: AiEvidence = {
+    ...evidence,
+    metric: "value",
+    chart: "line",
+    groups_suppressed_below_visitors: 0,
+    rows: evidence.rows.map((row) => ({ ...row, value: 0 })),
+  };
+  assert.deepEqual(
+    chartPoints(measurements, "value").map((p) => p.value),
+    [0, null, 0],
+  );
+  assert.deepEqual(
+    chartOptions({ ...measurements, report: "page", chart: "pie" }, "value"),
+    ["bar"],
+  );
+});

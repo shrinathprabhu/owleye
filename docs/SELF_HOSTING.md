@@ -134,7 +134,7 @@ Before publishing a GitHub release:
    - Environment: `npm-publish`
    - Allowed actions: **allow direct `npm publish`**, not only staged publishing.
 3. Create the matching GitHub environment `npm-publish`. Any environment tag restrictions must allow the release tag; approve the job if required reviewers are configured. This workflow needs no npm token secret.
-4. Use an unused package version. The initial tag is `v1.0.0` (also accepted: `@owleye/analytics@1.0.0`) and must match `packages/analytics/package.json`. For subsequent releases, bump that manifest before committing and tagging. Published npm versions cannot be overwritten, including after a README edit.
+4. Use an unused package version. The SDK release tag is `v1.0.1` (also accepted: `@owleye/analytics@1.0.1`) and must match `packages/analytics/package.json`. For subsequent releases, bump that manifest before committing and tagging. Published npm versions cannot be overwritten, including after a README edit.
 5. Publish the GitHub release; a draft or a tag push alone does not trigger this workflow. It builds, tests, checks bundle sizes and package contents, then publishes from the SDK directory. Prereleases use npm's `next` tag; other releases use `latest`.
 6. Check the successful Actions run, then the npm package version, SDK README, source link and provenance attestation. Confirm all three versioned CDN files become available; CDN caches can take time to update. A failed run before publishing can be rerun after fixing configuration. Check npm first if the publish outcome is uncertain; a successful version must not be republished.
 
@@ -143,3 +143,11 @@ The workflow uses a GitHub-hosted runner, Node 26, npm 11.5.1 or newer, `id-toke
 ### Analytics and Console storage
 
 The [SDK privacy section](../packages/analytics/README.md#visitor-identification-and-browser-storage) describes the server-derived visitor identifiers and the SDK's lack of browser storage. Console authentication uses cookies; tab coordination uses localStorage without user IDs or credentials. Neither mechanism identifies analytics visitors. If your reverse proxy adds access logging or cookies, review that configuration separately from OwlEye. CDN delivery also makes a request to the CDN provider; serve the pinned SDK files yourself if you want to avoid that external request.
+
+## Measurement storage upgrades
+
+Redeploy initializes `owleye_performance` and the read-only `owleye_all_events` view in ClickHouse. The API account needs CREATE TABLE/VIEW and ALTER privileges in its own database. New Web Vitals and performance spans are stored in `owleye_performance`; historical measurements remain readable in `owleye_events`. No manual copy, reset, or cron is required. Retention and app deletion cover both tables. Back up both tables with your normal backups.
+
+If you configured a separate read-only AI ClickHouse user, grant SELECT on `owleye_events`, `owleye_performance`, `owleye_all_events`, and `owleye_uptime_checks` in your OwlEye database after startup has created the objects and before enabling AI traffic. The view uses the caller's privileges. Never give that AI user write or schema permissions.
+
+Self-hosted ingestion has no monthly event or subscription quota. Request-size, ingestion-rate, and queue bounds still protect the server. Performance storage uses disk space and the configured retention policy. Server integrations can create app-scoped Analytics API keys on the API Keys page; keep these secrets on trusted servers.

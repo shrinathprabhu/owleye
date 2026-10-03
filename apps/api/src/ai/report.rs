@@ -15,6 +15,7 @@ pub(super) enum Report {
     Os,
     City,
     Event,
+    Page,
     Campaign,
     Funnel,
     Clarification,
@@ -50,6 +51,7 @@ pub(crate) enum Metric {
     #[default]
     Visitors,
     Sessions,
+    Value,
 }
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -58,9 +60,34 @@ pub(crate) enum Output {
     Text,
     Pdf,
 }
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Dataset {
+    #[default]
+    Events,
+    Performance,
+    Engagement,
+    Uptime,
+}
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Measure {
+    #[default]
+    Count,
+    Mean,
+    P50,
+    P75,
+    P95,
+    Total,
+}
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ReportPlan {
+    #[serde(default)]
+    pub dataset: Dataset,
+    #[serde(default)]
+    pub measure: Measure,
     pub report: Report,
     pub days: u32,
     pub offset_days: u32,
@@ -121,6 +148,37 @@ impl ReportPlan {
         self.validate()
     }
     pub fn validate(&self) -> Result<(), ApiError> {
+        if self.report == Report::Funnel && self.dataset != Dataset::Events {
+            return Err(ApiError::BadRequest(
+                "Funnels require ordinary events.".into(),
+            ));
+        }
+        if self.measure != Measure::Count {
+            if self.dataset == Dataset::Events || self.metric != Metric::Value {
+                return Err(ApiError::BadRequest("Duration and percentile questions require a measurement dataset and the value metric.".into()));
+            }
+            if self.dataset == Dataset::Performance && self.events.len() != 1 {
+                return Err(ApiError::BadRequest("Choose one Web Vital or performance span so incompatible units are not combined.".into()));
+            }
+        } else if self.metric == Metric::Value {
+            return Err(ApiError::BadRequest(
+                "Choose mean, p50, p75, p95 or total for the value metric.".into(),
+            ));
+        }
+        if self.dataset == Dataset::Uptime
+            && (!self.events.is_empty()
+                || self.filtered()
+                || !self.cities.is_empty()
+                || !self.properties.is_empty()
+                || !self.campaigns.is_empty()
+                || !matches!(
+                    self.report,
+                    Report::Totals | Report::Daily | Report::Weekly | Report::Event
+                )
+                || !matches!(self.metric, Metric::Events | Metric::Value))
+        {
+            return Err(ApiError::BadRequest("Uptime supports check counts or response durations, overall, by day, week or state. Visitor and traffic filters do not apply.".into()));
+        }
         if self.days == 0 || self.days > 366 || self.offset_days > 36500 {
             return Err(ApiError::BadRequest("Choose a date range of 1–366 days. Historical dates are supported when retained data is available. No prompt allowance was consumed.".into()));
         }
@@ -464,6 +522,8 @@ pub(crate) struct ReportRow {
     pub pageviews: u64,
     pub visitors: u64,
     pub sessions: u64,
+    #[serde(default)]
+    pub value: f64,
 }
 #[derive(Debug, Serialize)]
 pub(crate) struct Evidence {
@@ -553,14 +613,38 @@ fn compiled_query(plan: &ReportPlan, parameters: &mut Vec<(String, String)>) -> 
         Report::Country => "if(match(country, '^[A-Z]{2}$'), country, 'Unknown')",
         Report::City => "concat(city, ', ', country)",
         Report::Event => "event_name",
+        Report::Page => "url_path",
         Report::Campaign => "if(utm_campaign = '', 'Unattributed', utm_campaign)",
         Report::Browser => "multiIf(browser_name IN ('Chrome','Firefox','Safari','Edge','Opera','Samsung Internet'), browser_name, 'Other')",
         Report::Os => OS_EXPRESSION,
         Report::Device => "multiIf(lowerUTF8(device_type) = 'desktop', 'Desktop', lowerUTF8(device_type) = 'mobile', 'Mobile', lowerUTF8(device_type) = 'tablet', 'Tablet', 'Other')",
         _ => "'Total'",
     };
+    if plan.dataset == Dataset::Uptime {
+        let dimension = match plan.report {
+            Report::Daily => "toString(toDate(toDateTime(checked_at), 'UTC'))",
+            Report::Weekly => "toString(toMonday(toDate(toDateTime(checked_at), 'UTC')))",
+            Report::Event => "state",
+            _ => "'Total'",
+        };
+        let value = measurement_expression(plan.measure, "toFloat64(duration_ms)");
+        let group = if plan.report == Report::Totals {
+            ""
+        } else {
+            "GROUP BY label"
+        };
+        return format!("SELECT {dimension} AS label, toUInt64(count()) AS events, toUInt64(0) AS pageviews, toUInt64(0) AS visitors, toUInt64(0) AS sessions, {value} AS value FROM owleye_uptime_checks WHERE site_id = {{site:String}} AND checked_at >= toUnixTimestamp(toDateTime({{start:Date}}, 'UTC')) AND checked_at < toUnixTimestamp(toDateTime({{end:Date}}, 'UTC') + INTERVAL 1 DAY) AND checked_at <= toUnixTimestamp(now()) {group} ORDER BY label LIMIT 366");
+    }
+    let event_types = match plan.dataset {
+        Dataset::Events => "event_type IN ('pageview','external','rule')",
+        Dataset::Performance => "event_type = 'performance'",
+        Dataset::Engagement => "event_type = 'page_session'",
+        Dataset::Uptime => unreachable!(),
+    };
+    let sample = "if(event_name = 'web_vital_cls', JSONExtractFloat(payload_json, 'value'), if(isNull(duration_ms), JSONExtractFloat(payload_json, 'value'), toFloat64(duration_ms)))";
+    let measurement = measurement_expression(plan.measure, sample);
     let extra = super::insights::predicate(plan, parameters, plan.report != Report::Funnel);
-    let scope = format!("site_id = {{site:String}} AND occurred_at >= toDateTime({{start:Date}}, 'UTC') AND occurred_at < toDateTime({{end:Date}}, 'UTC') + INTERVAL 1 DAY AND occurred_at <= now64(3) AND event_type IN ('pageview','external','rule') AND (empty({{country:Array(String)}}) OR country IN {{country:Array(String)}}) AND (empty({{browser:Array(String)}}) OR browser_name IN {{browser:Array(String)}}) AND (empty({{device:Array(String)}}) OR lowerUTF8(device_type) IN {{device:Array(String)}}) AND (empty({{os:Array(String)}}) OR {OS_EXPRESSION} IN {{os:Array(String)}}) AND {ACTIVE_ROW_PREDICATE} AND ({extra})");
+    let scope = format!("site_id = {{site:String}} AND occurred_at >= toDateTime({{start:Date}}, 'UTC') AND occurred_at < toDateTime({{end:Date}}, 'UTC') + INTERVAL 1 DAY AND occurred_at <= now64(3) AND {event_types} AND (empty({{country:Array(String)}}) OR country IN {{country:Array(String)}}) AND (empty({{browser:Array(String)}}) OR browser_name IN {{browser:Array(String)}}) AND (empty({{device:Array(String)}}) OR lowerUTF8(device_type) IN {{device:Array(String)}}) AND (empty({{os:Array(String)}}) OR {OS_EXPRESSION} IN {{os:Array(String)}}) AND {ACTIVE_ROW_PREDICATE} AND ({extra})");
     if plan.report == Report::Funnel {
         return super::insights::funnel_query(plan, &scope, parameters);
     }
@@ -578,7 +662,19 @@ fn compiled_query(plan: &ReportPlan, parameters: &mut Vec<(String, String)>) -> 
     } else {
         "ORDER BY events DESC, label LIMIT 20"
     };
-    format!("SELECT {dimension} AS label, toUInt64(count()) AS events, toUInt64(countIf(event_type = 'pageview')) AS pageviews, toUInt64(uniqCombined64If(visitor_id, visitor_id != '')) AS visitors, toUInt64(uniqCombined64If(anon_session_id, anon_session_id != '')) AS sessions FROM owleye_events WHERE {scope} {group} {having} {order}")
+    format!("SELECT {dimension} AS label, toUInt64(count()) AS events, toUInt64(countIf(event_type = 'pageview')) AS pageviews, toUInt64(uniqCombined64If(visitor_id, visitor_id != '')) AS visitors, toUInt64(uniqCombined64If(anon_session_id, anon_session_id != '')) AS sessions, {measurement} AS value FROM owleye_events WHERE {scope} {group} {having} {order}")
+}
+
+fn measurement_expression(measure: Measure, sample: &str) -> String {
+    let aggregate = match measure {
+        Measure::Count => return "toFloat64(0)".into(),
+        Measure::Mean => format!("avg({sample})"),
+        Measure::P50 => format!("quantileTDigest(0.50)({sample})"),
+        Measure::P75 => format!("quantileTDigest(0.75)({sample})"),
+        Measure::P95 => format!("quantileTDigest(0.95)({sample})"),
+        Measure::Total => format!("sum({sample})"),
+    };
+    format!("if(count() = 0, toFloat64(0), toFloat64({aggregate}))")
 }
 
 pub(super) async fn execute(
@@ -611,7 +707,7 @@ pub(super) async fn execute(
     );
     let rows = state
         .clickhouse
-        .query_ai_report(
+        .query_scoped_ai_report(
             &sql,
             &parameters,
             state.settings.ai.clickhouse_url.as_deref(),
@@ -626,8 +722,9 @@ pub(super) async fn execute(
                 "Analytics could not be queried; no prompt allowance was consumed".into(),
             )
         })?;
-    let threshold = if plan.filtered()
-        || !matches!(plan.report, Report::Totals | Report::Daily | Report::Weekly)
+    let threshold = if plan.dataset != Dataset::Uptime
+        && (plan.filtered()
+            || !matches!(plan.report, Report::Totals | Report::Daily | Report::Weekly))
     {
         5
     } else {
@@ -645,6 +742,13 @@ pub(super) async fn execute(
         plan.chart
     };
     let mut details = super::insights::details(&plan);
+    details.notes.push(format!("Dataset: {:?}; aggregation: {:?}. The supporting rows are the query result, not raw visitor records.", plan.dataset, plan.measure));
+    if plan.metric == Metric::Value {
+        details.notes.push(if plan.events.first().is_some_and(|event| event == "web_vital_cls") { "Values are unitless CLS scores." } else { "Values are milliseconds. Engagement measures visible page segments, not visitor sessions or continuous attention." }.into());
+    }
+    if plan.dataset == Dataset::Uptime {
+        details.notes.push("Events means completed uptime checks. Visitor, pageview and session fields do not apply. Missing checks are unknown, not proof of uptime.".into());
+    }
     details.notes.push("Only retained, active analytics is included. Missing or expired history cannot be reconstructed; these results do not prove complete coverage of the requested dates.".into());
     Ok(Evidence {
         report: serde_json::to_value(plan.report)
@@ -672,6 +776,122 @@ pub(super) async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "requires disposable loopback OWLEYE_TEST_CLICKHOUSE_URL"]
+    async fn measurement_compiler_executes_percentiles_and_enforces_scope() {
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL").unwrap();
+        assert!(matches!(
+            reqwest::Url::parse(&url).unwrap().host_str(),
+            Some("localhost" | "127.0.0.1")
+        ));
+        let ch = crate::storage::clickhouse::ClickHouse::new(url).unwrap();
+        let today = Utc::now().date_naive().to_string();
+        for (dataset, name, value) in [
+            (Dataset::Performance, "web_vital_lcp", 100.0),
+            (Dataset::Performance, "web_vital_cls", 0.125),
+            (Dataset::Engagement, "page_session", 100.0),
+        ] {
+            let kind = if dataset == Dataset::Performance {
+                "performance"
+            } else {
+                "page_session"
+            };
+            let mut plan = ReportPlan {
+                dataset,
+                measure: Measure::P75,
+                metric: Metric::Value,
+                events: vec![name.into()],
+                days: 1,
+                ..Default::default()
+            };
+            plan.normalize().unwrap();
+            let mut bindings = Vec::new();
+            let sql = compiled_query(&plan, &mut bindings);
+            let source = format!("(SELECT 'owl_measurement_test' AS site_id, now64(3) AS occurred_at, now64(3) + INTERVAL 1 DAY AS retention_active_until, '{kind}' AS event_type, '{name}' AS event_name, toString(number) AS visitor_id, toString(number) AS anon_session_id, '' AS country, '' AS browser_name, '' AS device_type, '' AS os_name, toUInt64(100) AS duration_ms, '{{\"value\":0.125}}' AS payload_json FROM numbers(6))");
+            let sql = sql.replace("owleye_events", &source);
+            let mut params = vec![
+                ("param_site", "owl_measurement_test"),
+                ("param_start", &today),
+                ("param_end", &today),
+                ("param_country", "[]"),
+                ("param_browser", "[]"),
+                ("param_device", "[]"),
+                ("param_os", "[]"),
+            ];
+            params.extend(bindings.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+            let rows: Vec<ReportRow> = ch
+                .query_scoped_ai_report(&sql, &params, None)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].events, 6);
+            assert!((rows[0].value - value).abs() < 0.001);
+            params[0] = ("param_site", "owl_other");
+            let rows: Vec<ReportRow> = ch
+                .query_scoped_ai_report(&sql, &params, None)
+                .await
+                .unwrap();
+            assert!(
+                rows.is_empty(),
+                "another app must not see these measurements"
+            );
+        }
+        let plan = ReportPlan {
+            dataset: Dataset::Uptime,
+            measure: Measure::P95,
+            metric: Metric::Value,
+            days: 1,
+            ..Default::default()
+        };
+        let sql = query(&plan).replace("owleye_uptime_checks", "(SELECT 'owl_measurement_test' AS site_id, toUInt32(now()) AS checked_at, toUInt64(250) AS duration_ms, 'up' AS state FROM numbers(3))");
+        let rows: Vec<ReportRow> = ch
+            .query_scoped_ai_report(
+                &sql,
+                &[
+                    ("param_site", "owl_measurement_test"),
+                    ("param_start", &today),
+                    ("param_end", &today),
+                ],
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows[0].events, 3);
+        assert_eq!(rows[0].value, 250.0);
+        ch.shutdown().await;
+    }
+
+    #[test]
+    fn measurement_plans_preserve_tenant_and_units() {
+        let mut plan = ReportPlan {
+            dataset: Dataset::Performance,
+            measure: Measure::P75,
+            metric: Metric::Value,
+            events: vec!["web_vital_cls".into()],
+            days: 7,
+            ..Default::default()
+        };
+        assert!(plan.normalize().is_ok());
+        let sql = query(&plan);
+        assert!(sql.contains("site_id = {site:String}"));
+        assert!(sql.contains("event_type = 'performance'"));
+        assert!(sql.contains("quantileTDigest(0.75)"));
+        assert!(sql.contains("JSONExtractFloat(payload_json, 'value')"));
+        plan.events.push("web_vital_lcp".into());
+        assert!(plan.validate().is_err());
+        plan = ReportPlan {
+            dataset: Dataset::Uptime,
+            measure: Measure::P95,
+            metric: Metric::Value,
+            days: 7,
+            ..Default::default()
+        };
+        assert!(plan.normalize().is_ok());
+        assert!(query(&plan).contains("FROM owleye_uptime_checks WHERE site_id = {site:String}"));
+        plan.country.push("IN".into());
+        assert!(plan.validate().is_err());
+    }
+
     #[test]
     fn rejects_sql_scope_overrides_and_invalid_ranges() {
         for value in [

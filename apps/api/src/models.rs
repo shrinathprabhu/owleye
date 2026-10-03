@@ -302,6 +302,20 @@ impl EventRow {
 // An API integrator must explicitly send search/hash fields to retain them.
 // A full URL alone must not accidentally persist login tokens or fragments.
 fn normalize_page_urls(page: &mut SdkPage) {
+    let same_origin = page
+        .url
+        .as_deref()
+        .and_then(|value| reqwest::Url::parse(value).ok())
+        .zip(
+            page.referrer
+                .as_deref()
+                .and_then(|value| reqwest::Url::parse(value).ok()),
+        )
+        .is_some_and(|(page, referrer)| page.origin() == referrer.origin());
+    if same_origin {
+        page.referrer = None;
+        page.referrer_host = None;
+    }
     if let Some(raw) = page.url.as_deref() {
         if let Ok(mut url) = reqwest::Url::parse(raw) {
             let _ = url.set_username("");
@@ -673,7 +687,8 @@ mod tests {
         };
         normalize_page_urls(&mut page);
         assert_eq!(page.url.as_deref(), Some("https://example.test/path"));
-        assert_eq!(page.referrer.as_deref(), Some("https://example.test/login"));
+        assert_eq!(page.referrer, None);
+        assert_eq!(page.referrer_host, None);
         page.search = Some("?utm_source=newsletter".to_owned());
         page.hash = Some("#section".to_owned());
         normalize_page_urls(&mut page);

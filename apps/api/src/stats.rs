@@ -385,7 +385,7 @@ fn totals_query(filter: &str) -> String {
     format!(
         r#"
         SELECT
-            toUInt64(count()) AS events,
+            toUInt64(countIf(event_type != 'performance')) AS events,
             toUInt64(countIf(event_type = 'pageview')) AS pageviews,
             toUInt64(uniqCombined64(visitor_id)) AS visitors,
             toUInt64(uniqCombined64If(visitor_id, event_type = 'pageview')) AS pageview_visitors,
@@ -393,7 +393,7 @@ fn totals_query(filter: &str) -> String {
             toUInt64(countIf(event_type = 'external')) AS external_events,
             toUInt64(countIf(event_type = 'rule')) AS rule_events,
             toUInt64(countIf(event_type = 'performance')) AS performance_events,
-            toUInt64(ifNull(round(avg(duration_ms)), 0)) AS avg_duration_ms
+            toUInt64(ifNull(round(avgIf(duration_ms, event_type = 'page_session')), 0)) AS avg_duration_ms
         FROM owleye_events
         WHERE {filter}
         "#
@@ -405,7 +405,7 @@ fn timeseries_query(filter: &str, bucket: &str) -> String {
         r#"
         SELECT
             toString({bucket}) AS date,
-            toUInt64(count()) AS events,
+            toUInt64(countIf(event_type != 'performance')) AS events,
             toUInt64(countIf(event_type = 'pageview')) AS pageviews,
             toUInt64(uniqCombined64(visitor_id)) AS visitors
         FROM owleye_events
@@ -495,7 +495,7 @@ fn event_names_query(filter: &str) -> String {
             event_name,
             toUInt64(count()) AS count
         FROM owleye_events
-        WHERE {filter}
+        WHERE {filter} AND event_type != 'performance'
         GROUP BY event_type, event_name
         ORDER BY count DESC, event_type ASC, event_name ASC
         LIMIT 20
@@ -898,7 +898,7 @@ pub(crate) async fn public_overview(
             let expression = match metric {
                 Metric::Visitors => "uniqCombined64(visitor_id)",
                 Metric::Pageviews => "countIf(event_type = 'pageview')",
-                Metric::Events => "count()",
+                Metric::Events => "countIf(event_type != 'performance')",
                 Metric::Sessions => "uniqCombined64(anon_session_id)",
             };
             format!("toUInt64({expression}) AS {}", metric.key())

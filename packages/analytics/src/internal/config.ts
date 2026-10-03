@@ -23,6 +23,9 @@ export function assertSiteId(siteId: string): string {
 
 export interface NormalizedConfig {
   autoStart: boolean;
+  autoTrackPageviews: boolean;
+  trackQueryChanges: boolean;
+  trackHashChanges: boolean;
   captureCampaigns: boolean;
   captureHash: boolean;
   captureQuery: boolean;
@@ -35,6 +38,9 @@ export interface NormalizedConfig {
 export function normalizeConfig(config: OwlConfig = {}): NormalizedConfig {
   return {
     autoStart: config.autoStart !== false,
+    autoTrackPageviews: config.autoTrackPageviews !== false,
+    trackQueryChanges: Boolean(config.trackQueryChanges),
+    trackHashChanges: Boolean(config.trackHashChanges),
     captureCampaigns: Boolean(config.captureCampaigns),
     captureHash: Boolean(config.captureHash),
     captureQuery: Boolean(config.captureQuery),
@@ -96,6 +102,23 @@ export function readScriptConfig(script: HTMLScriptElement | null): {
     config: {
       autoStart: parseBoolean(
         readDataset(script, "owleyeAutoStart", "owlEyeAutoStart"),
+      ),
+      autoTrackPageviews: parseBoolean(
+        readDataset(
+          script,
+          "owleyeAutoTrackPageviews",
+          "owlEyeAutoTrackPageviews",
+        ),
+      ),
+      trackQueryChanges: parseBoolean(
+        readDataset(
+          script,
+          "owleyeTrackQueryChanges",
+          "owlEyeTrackQueryChanges",
+        ),
+      ),
+      trackHashChanges: parseBoolean(
+        readDataset(script, "owleyeTrackHashChanges", "owlEyeTrackHashChanges"),
       ),
       captureCampaigns: parseBoolean(
         readDataset(script, "owleyeCaptureCampaigns", "owlEyeCaptureCampaigns"),

@@ -206,22 +206,19 @@ const emptyDescription = computed(() =>
         <h2>Check Web Vitals collection</h2>
         <p>
           Pageviews alone do not include Web Vitals. If collection is not
-          already enabled, initialize the Web Vitals collector below. An empty
-          date range does not necessarily mean collection is disabled. Privacy
-          preferences and browser support can also limit measurements.
+          already enabled, use the setup instructions above. An empty date range
+          does not necessarily mean collection is disabled. Privacy preferences
+          and browser support can also limit measurements.
         </p>
       </div>
-      <pre><code>{{ `import { trackWebVitals } from "@owleye/analytics/performance";
-
-const vitals = trackWebVitals(${JSON.stringify(response.site_id)});
-// During teardown or when permission is withdrawn:
-vitals.stop();` }}</code></pre>
     </section>
   </div>
 </template>
 
 <style scoped>
 .insights-stack {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 18px;
 }

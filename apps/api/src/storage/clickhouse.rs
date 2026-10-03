@@ -15,6 +15,7 @@ use tokio::{
 use crate::{models::clickhouse_string, ApiError, EventRow};
 
 const EVENTS_TABLE: &str = "owleye_events";
+const PERFORMANCE_TABLE: &str = "owleye_performance";
 const INSERT_BATCH_MAX_ROWS: usize = 1_000;
 const INSERT_BATCH_INTERVAL: Duration = Duration::from_millis(100);
 const INSERT_QUEUE_CAPACITY: usize = 512;
@@ -22,7 +23,7 @@ const CLICKHOUSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 // Bound request waiting; the queued batch retains its erasure fence until settled.
 const INSERT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(45);
 #[cfg(test)]
-const FRESH_FACT_TABLES: &[&str] = &[EVENTS_TABLE, "owleye_uptime_checks"];
+const FRESH_FACT_TABLES: &[&str] = &[EVENTS_TABLE, PERFORMANCE_TABLE, "owleye_uptime_checks"];
 
 const EVENT_COLUMNS: &[&str] = &[
     "event_id",
@@ -213,7 +214,7 @@ impl ClickHouse {
         )
         .await?;
 
-        for statement in [
+        let migrations = [
             "ALTER TABLE owleye_events ADD COLUMN IF NOT EXISTS timestamp DateTime64(3, 'UTC') DEFAULT occurred_at AFTER site_id",
             "ALTER TABLE owleye_events ADD COLUMN IF NOT EXISTS visitor_id String DEFAULT anon_user_id AFTER event_name",
             "ALTER TABLE owleye_events ADD COLUMN IF NOT EXISTS session_id String DEFAULT anon_session_id AFTER visitor_id",
@@ -255,7 +256,8 @@ impl ClickHouse {
             "ALTER TABLE owleye_events ADD COLUMN IF NOT EXISTS rule_type LowCardinality(String) AFTER rule_id",
             "ALTER TABLE owleye_events ADD COLUMN IF NOT EXISTS sdk_name LowCardinality(String) DEFAULT 'owleye-js' AFTER payload_json",
             "ALTER TABLE owleye_events ADD COLUMN IF NOT EXISTS sdk_version String AFTER sdk_name",
-        ] {
+        ];
+        for statement in migrations {
             self.execute(statement).await?;
         }
         // Older development schemas used a table TTL driven by
@@ -271,6 +273,15 @@ impl ClickHouse {
         {
             self.execute("ALTER TABLE owleye_events REMOVE TTL").await?;
         }
+
+        self.execute("CREATE TABLE IF NOT EXISTS owleye_performance AS owleye_events")
+            .await?;
+        for statement in migrations {
+            self.execute(&statement.replacen("owleye_events", "owleye_performance", 1))
+                .await?;
+        }
+        let columns = EVENT_COLUMNS.join(", ");
+        self.execute(&format!("CREATE OR REPLACE VIEW owleye_all_events SQL SECURITY INVOKER AS SELECT {columns} FROM owleye_events UNION ALL SELECT {columns} FROM owleye_performance")).await?;
 
         Ok(())
     }
@@ -383,7 +394,7 @@ impl ClickHouse {
             return Ok(());
         }
         self.execute(&format!(
-            "INSERT INTO owleye_deleted_event_daily_totals SELECT {batch} AS batch_id, toDate(occurred_at, 'UTC') AS event_day, count() AS events, countIf(event_type = 'pageview') AS pageviews, countIf(event_type = 'error' OR (event_type = 'external' AND event_name IN ('error', 'exception', 'unhandledrejection'))) AS errors, countIf(event_type = 'performance') AS performance FROM owleye_events WHERE {predicate} GROUP BY event_day"
+            "INSERT INTO owleye_deleted_event_daily_totals SELECT {batch} AS batch_id, toDate(occurred_at, 'UTC') AS event_day, count() AS events, countIf(event_type = 'pageview') AS pageviews, countIf(event_type = 'error' OR (event_type = 'external' AND event_name IN ('error', 'exception', 'unhandledrejection'))) AS errors, countIf(event_type = 'performance') AS performance FROM owleye_all_events WHERE {predicate} GROUP BY event_day"
         )).await.map_err(|_| ApiError::ServiceUnavailable("Deletion totals could not be saved; cleanup will retry".into()))?;
         self.execute(&format!(
             "INSERT INTO owleye_event_deletion_snapshots (batch_id) VALUES ({batch})"
@@ -423,6 +434,17 @@ impl ClickHouse {
         }
     }
 
+    /// AI is constrained to server-compiled SELECTs with a bound, authorized app.
+    pub(crate) async fn query_scoped_ai_report<T: DeserializeOwned>(
+        &self,
+        sql: &str,
+        parameters: &[(&str, &str)],
+        read_url: Option<&str>,
+    ) -> anyhow::Result<Vec<T>> {
+        validate_ai_scope(sql, parameters)?;
+        self.query_ai_report(sql, parameters, read_url).await
+    }
+
     /// Reserved for the fixed AI report compiler, with bound tenant/date values.
     pub(crate) async fn query_ai_report<T: DeserializeOwned>(
         &self,
@@ -454,7 +476,7 @@ impl ClickHouse {
                 ("wait_end_of_query", "1"),
             ])
             .timeout(Duration::from_secs(15))
-            .body(format!("{sql}\nFORMAT JSONEachRow"))
+            .body(format!("{}\nFORMAT JSONEachRow", analytics_read_query(sql)))
             .send()
             .await?;
         #[cfg(test)]
@@ -488,6 +510,7 @@ impl ClickHouse {
     where
         T: DeserializeOwned,
     {
+        let sql = analytics_read_query(sql);
         let body = format!("{sql}\nFORMAT JSONEachRow");
         let text = self
             .request()
@@ -515,6 +538,18 @@ impl ClickHouse {
     }
 
     async fn execute(&self, sql: &str) -> anyhow::Result<()> {
+        // Both stores participate in deletion/retention; acknowledgement is only
+        // returned when both synchronous mutations succeed. Retries are idempotent.
+        if sql.starts_with("ALTER TABLE owleye_events DELETE ")
+            || sql.starts_with("ALTER TABLE owleye_events UPDATE ")
+        {
+            self.execute_one(&sql.replacen("owleye_events", "owleye_performance", 1))
+                .await?;
+        }
+        self.execute_one(sql).await
+    }
+
+    async fn execute_one(&self, sql: &str) -> anyhow::Result<()> {
         let text = self
             .request()
             .query(&[("wait_end_of_query", "1")])
@@ -690,8 +725,27 @@ impl ClickHouseWriter {
     }
 
     async fn insert_events(&self, rows: &[EventRow]) -> anyhow::Result<()> {
-        let body = build_insert_body(rows)?;
+        for performance in [false, true] {
+            let selected: Vec<_> = rows
+                .iter()
+                .filter(|row| (row.event_type == "performance") == performance)
+                .cloned()
+                .collect();
+            if selected.is_empty() {
+                continue;
+            }
+            let table = if performance {
+                PERFORMANCE_TABLE
+            } else {
+                EVENTS_TABLE
+            };
+            let body = build_insert_body_for(&selected, table)?;
+            self.insert_body(body).await?;
+        }
+        Ok(())
+    }
 
+    async fn insert_body(&self, body: String) -> anyhow::Result<()> {
         let text = authenticated_post(&self.client, &self.url, self.auth.as_ref())
             .query(&[("wait_end_of_query", "1")])
             .body(body)
@@ -710,9 +764,39 @@ impl ClickHouseWriter {
     }
 }
 
+#[cfg(test)]
 fn build_insert_body(rows: &[EventRow]) -> anyhow::Result<String> {
+    build_insert_body_for(rows, EVENTS_TABLE)
+}
+
+// Internal query builders use the legacy name; the read source also includes
+// separately stored measurements. No user or model SQL reaches this function.
+fn validate_ai_scope(sql: &str, parameters: &[(&str, &str)]) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        parameters
+            .iter()
+            .any(|(key, value)| *key == "param_site" && !value.trim().is_empty()),
+        "AI query requires an authorized app"
+    );
+    anyhow::ensure!(
+        sql.contains("site_id = {site:String}"),
+        "AI query requires bound app scope"
+    );
+    let sql = sql.trim_start();
+    anyhow::ensure!(
+        (sql.starts_with("SELECT ") || sql.starts_with("WITH ")) && !sql.contains(';'),
+        "AI query must be a single compiled read"
+    );
+    Ok(())
+}
+
+fn analytics_read_query(sql: &str) -> String {
+    sql.replace("FROM owleye_events", "FROM owleye_all_events")
+}
+
+fn build_insert_body_for(rows: &[EventRow], table: &str) -> anyhow::Result<String> {
     let mut body = format!(
-        "INSERT INTO {EVENTS_TABLE} ({}) SETTINGS async_insert=0 FORMAT JSONEachRow\n",
+        "INSERT INTO {table} ({}) SETTINGS async_insert=0 FORMAT JSONEachRow\n",
         EVENT_COLUMNS.join(", ")
     );
 
@@ -810,7 +894,11 @@ mod tests {
     fn fresh_schema_only_declares_the_implemented_event_fact_surface() {
         assert_eq!(
             FRESH_FACT_TABLES,
-            &["owleye_events", "owleye_uptime_checks"]
+            &[
+                "owleye_events",
+                "owleye_performance",
+                "owleye_uptime_checks"
+            ]
         );
     }
 
@@ -949,6 +1037,78 @@ mod tests {
             .map(|name| serde_json::json!({"name":name}))
             .to_vec()
         );
+    }
+
+    #[test]
+    fn ai_reads_require_bound_scope_and_one_compiled_statement() {
+        let sql = "SELECT count() FROM owleye_events WHERE site_id = {site:String}";
+        assert!(validate_ai_scope(sql, &[]).is_err());
+        assert!(validate_ai_scope(sql, &[("param_site", "")]).is_err());
+        assert!(validate_ai_scope(
+            "SELECT count() FROM owleye_events",
+            &[("param_site", "owl_a")]
+        )
+        .is_err());
+        assert!(validate_ai_scope(
+            &format!("{sql}; DROP TABLE owleye_events"),
+            &[("param_site", "owl_a")]
+        )
+        .is_err());
+        assert!(validate_ai_scope(sql, &[("param_site", "owl_a")]).is_ok());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable loopback OWLEYE_TEST_CLICKHOUSE_URL"]
+    async fn performance_storage_preserves_legacy_reads_scope_and_erasure() {
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL").unwrap();
+        let parsed = reqwest::Url::parse(&url).unwrap();
+        assert!(matches!(parsed.host_str(), Some("127.0.0.1" | "localhost")));
+        let ch = ClickHouse::new(url).unwrap();
+        ch.init().await.unwrap();
+        ch.init().await.unwrap(); // Safe to redeploy twice.
+        let site = format!("perf-test-{}", uuid::Uuid::new_v4());
+        let mut event = event_row(&uuid::Uuid::new_v4().to_string());
+        event.site_id = site.clone();
+        let mut metric = event.clone();
+        metric.event_id = uuid::Uuid::new_v4().to_string();
+        metric.event_type = "performance".into();
+        metric.event_name = "web_vital_lcp".into();
+        metric.duration_ms = Some(1234);
+        let ids = vec![event.event_id.clone(), metric.event_id.clone()];
+        ch.insert_events_after(&site, vec![event, metric.clone()], || async { Ok(()) })
+            .await
+            .unwrap();
+        let physical: Vec<serde_json::Value> = ch.query_json_each_row(&format!("SELECT (SELECT toUInt32(count()) FROM default.owleye_events WHERE site_id = {}) AS events, (SELECT toUInt32(count()) FROM default.owleye_performance WHERE site_id = {}) AS performance", clickhouse_string(&site), clickhouse_string(&site))).await.unwrap();
+        assert_eq!(physical[0]["events"], 1);
+        assert_eq!(physical[0]["performance"], 1);
+        metric.event_id = uuid::Uuid::new_v4().to_string();
+        ch.execute(&build_insert_body(&[metric]).unwrap())
+            .await
+            .unwrap(); // Legacy sample remains readable.
+        let combined: Vec<serde_json::Value> = ch.query_scoped_ai_report("SELECT count() AS samples FROM owleye_events WHERE site_id = {site:String} AND event_type = 'performance'", &[("param_site", &site)], None).await.unwrap();
+        assert_eq!(combined[0]["samples"], 2);
+        let other: Vec<serde_json::Value> = ch
+            .query_scoped_ai_report(
+                "SELECT count() AS samples FROM owleye_events WHERE site_id = {site:String}",
+                &[("param_site", "nonexistent_other_site")],
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(other[0]["samples"], 0);
+        let _ = ids;
+        ch.delete_site_events(&site, &uuid::Uuid::new_v4().to_string())
+            .await
+            .unwrap();
+        let remaining: Vec<serde_json::Value> = ch
+            .query_json_each_row(&format!(
+                "SELECT toUInt32(count()) AS count FROM owleye_events WHERE site_id = {}",
+                clickhouse_string(&site)
+            ))
+            .await
+            .unwrap();
+        assert_eq!(remaining[0]["count"], 0);
+        ch.shutdown().await;
     }
 
     fn event_row(event_id: &str) -> EventRow {

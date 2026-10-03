@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { eventLabel } from "~/utils/eventLabel";
 import type { ConsoleSelectOption } from "~/types/console";
 import { apiErrorMessage as requestError } from "~/utils/apiError";
 import { routes } from "~/utils/routes";
@@ -63,7 +64,7 @@ const typeOptions: ConsoleSelectOption[] = [
   { label: "Page views", value: "pageview" },
   { label: "Custom events", value: "external" },
   { label: "Tracking rules", value: "rule" },
-  { label: "Timings & Web Vitals", value: "performance" },
+  { label: "Session", value: "page_session" },
 ];
 const sortOptions: ConsoleSelectOption[] = [
   { label: "Most events", value: "count:desc" },
@@ -222,14 +223,6 @@ function label(value: string) {
       </div>
     </div>
 
-    <p v-if="eventType === 'performance'" class="timing-note">
-      Custom timings and Web Vitals are stored as events. This view shows their
-      names and counts; automatic browser measurements are charted in
-      <NuxtLink :to="{ path: '/performance', query: { site: props.siteId } }"
-        >Web Vitals</NuxtLink
-      >.
-    </p>
-
     <div v-if="error" class="page-alert" role="alert">
       <p>{{ error }}</p>
       <button class="text-button" type="button" @click="loadEvents">
@@ -270,10 +263,15 @@ function label(value: string) {
             v-for="item in response.items"
             :key="`${response.group_by}:${item.key}`"
           >
-            <th scope="row" data-label="Group">{{ item.key || "Unnamed" }}</th>
+            <th scope="row" data-label="Group">
+              {{
+                response.group_by === "event_name"
+                  ? eventLabel(item.event_type, item.event_name)
+                  : item.key || "Unnamed"
+              }}
+            </th>
             <td data-label="Event">
-              <span class="event-type-chip">{{ label(item.event_type) }}</span>
-              {{ item.event_name || "unnamed" }}
+              {{ eventLabel(item.event_type, item.event_name) }}
             </td>
             <td data-label="Count">
               <strong>{{ item.count.toLocaleString() }}</strong>

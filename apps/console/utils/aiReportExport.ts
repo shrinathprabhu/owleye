@@ -35,6 +35,10 @@ export async function exportAiReport(
           ),
         ]),
       ];
+  if (!funnel && e.metric === "value") {
+    table[0]!.push("Measurement");
+    e.rows.forEach((row, index) => table[index + 1]!.push(row.value?.toLocaleString("en-US") ?? "—"));
+  }
   const filename = `owleye-${e.report}-${e.start_date}-${e.end_date}.pdf`;
   const [{ default: pdfMake }, { default: fonts }] = await Promise.all([
     import("pdfmake/build/pdfmake"),
@@ -57,7 +61,7 @@ export async function exportAiReport(
     content.push({
       table: {
         headerRows: 1,
-        widths: funnel ? ["*", "auto"] : ["*", "auto", "auto", "auto", "auto"],
+        widths: table[0]!.map((_, index) => index === 0 ? "*" : "auto"),
         body: table,
       },
       layout: "lightHorizontalLines",

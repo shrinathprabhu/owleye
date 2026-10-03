@@ -326,28 +326,53 @@ function selectorLabel(rule: TrackingRule) {
           </div>
           <div v-else class="management-actions">
             <button
-              class="button secondary compact"
+              class="button secondary compact rule-icon-action"
               :disabled="mutationPending || readOnly"
               type="button"
+              :aria-label="`${rule.enabled ? 'Pause' : 'Enable'} ${rule.name}`"
+              :title="rule.enabled ? 'Pause' : 'Enable'"
               @click="toggleRule(rule)"
             >
-              {{ rule.enabled ? "Pause" : "Enable" }}
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+                <path v-if="rule.enabled" d="M6 4h4v16H6zM14 4h4v16h-4z" />
+                <path v-else d="m7 4 14 8-14 8z" />
+              </svg>
             </button>
             <button
-              class="button secondary compact"
+              class="button secondary compact rule-icon-action"
               :disabled="readOnly"
               type="button"
+              :aria-label="`Edit ${rule.name}`"
+              title="Edit"
               @click="editingRule = rule"
             >
-              Edit
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="m16 3 5 5-12 12-6 1 1-6zM14 5l5 5" />
+              </svg>
             </button>
             <button
-              class="button danger-quiet compact"
+              class="button danger-quiet compact rule-icon-action"
               :disabled="readOnly"
               type="button"
+              :aria-label="`Delete ${rule.name}`"
+              title="Delete"
               @click="confirmDeleteId = rule.id"
             >
-              Delete
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7" />
+              </svg>
             </button>
           </div>
         </article>
@@ -361,3 +386,22 @@ function selectorLabel(rule: TrackingRule) {
     </article>
   </section>
 </template>
+
+<style scoped>
+.management-actions {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rule-icon-action {
+  width: 40px;
+  height: 40px;
+  padding: 9px;
+  flex: 0 0 40px;
+}
+.rule-icon-action svg {
+  width: 20px;
+  height: 20px;
+}
+</style>

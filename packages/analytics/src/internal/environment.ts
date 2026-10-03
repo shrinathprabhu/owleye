@@ -19,13 +19,17 @@ export interface PageCaptureOptions {
 export function getPage(
   options: PageCaptureOptions = {},
   referrerOverride?: string,
+  pageUrlOverride?: string,
 ): OwlPage {
   if (typeof window === "undefined") {
     return { path: "/" };
   }
 
-  const { hash, host, href, pathname, search } = window.location;
-  const referrer = referrerOverride || document.referrer || undefined;
+  const { hash, host, href, pathname, search } = pageUrlOverride
+    ? new URL(pageUrlOverride)
+    : window.location;
+  const candidate = referrerOverride || document.referrer || undefined;
+  const referrer = externalReferrer(candidate, href);
 
   return {
     hash: options.captureHash
@@ -36,7 +40,10 @@ export function getPage(
     referrer: sanitizeUrl(referrer, options),
     referrer_host: parseHost(referrer),
     search: pageSearch(search, options),
-    title: boundedOptional(document.title, PAGE_TITLE_MAX_BYTES),
+    title:
+      pageUrlOverride && pageUrlOverride !== window.location.href
+        ? undefined
+        : boundedOptional(document.title, PAGE_TITLE_MAX_BYTES),
     url: sanitizeUrl(href, options),
   };
 }
@@ -63,6 +70,23 @@ export function getEnvironment(): OwlEnvironment {
       width: boundedDimension(window.innerWidth),
     },
   };
+}
+
+// Internal navigation is not acquisition traffic. Compare complete origins so
+// a different subdomain or port remains a legitimate external referrer.
+function externalReferrer(
+  value: string | undefined,
+  pageUrl: string,
+): string | undefined {
+  if (!value) return undefined;
+  try {
+    const referrer = new URL(value, pageUrl);
+    return referrer.origin === new URL(pageUrl).origin
+      ? undefined
+      : referrer.href;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseHost(value: string | undefined): string | undefined {

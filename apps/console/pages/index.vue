@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { eventLabel } from "~/utils/eventLabel";
 import {
   breakdownItems,
   breakdownLabel,
@@ -447,8 +448,8 @@ function metric(value: number | undefined, suffix = "") {
             </div>
             <div>
               <span
-                title="Average across events with a duration, including custom timings and Web Vitals"
-                >Avg. event duration</span
+                title="Average visible page segment duration; switching tabs ends a segment. Not a visitor session."
+                >Avg. visible segment</span
               >
               <strong :class="{ skeleton: statsPending && !stats }">{{
                 metric(stats?.totals.avg_duration_ms, " ms")
@@ -656,12 +657,11 @@ function metric(value: number | undefined, suffix = "") {
           </div>
           <div v-else-if="stats?.event_names.length" class="rank-list">
             <div
-              v-for="event in stats.event_names"
+              v-for="event in stats.event_names.filter(item => item.event_type !== 'performance')"
               :key="`${event.event_type}:${event.event_name}`"
             >
               <span
-                >{{ event.event_type }} /
-                {{ event.event_name || "unnamed" }}</span
+                >{{ eventLabel(event.event_type, event.event_name) }}</span
               >
               <strong>{{ formatNumber(event.count) }}</strong>
             </div>

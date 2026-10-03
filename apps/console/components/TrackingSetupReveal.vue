@@ -9,7 +9,7 @@ const props = defineProps<{
 const isOpen = ref(false);
 const copyState = ref<"idle" | "copied" | "failed">("idle");
 
-const installSnippet = "pnpm add @owleye/analytics";
+const installSnippet = "pnpm add @owleye/analytics@1.0.1";
 const trackingSnippet = computed(() =>
   trackingSetupSnippet(props.siteId, props.apiBase),
 );
@@ -38,7 +38,8 @@ async function copyTrackingSnippet() {
   <div class="tracking-identity">
     <span>
       Tracking ID:
-      <code>{{ siteId }}</code>
+      <code :title="siteId">{{ siteId }}</code>
+      <CopyTrackingId :value="siteId" />
     </span>
     <button
       class="tracking-toggle"
@@ -129,7 +130,18 @@ async function copyTrackingSnippet() {
   font-size: 0.8rem;
 }
 
-.tracking-identity span {
+.tracking-identity > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
+}
+.tracking-identity > span > .copy-tracking {
+  flex-shrink: 0;
+}
+.tracking-identity > span > code {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -293,8 +305,8 @@ async function copyTrackingSnippet() {
     overflow: hidden;
   }
 
-  .tracking-identity span {
-    display: block;
+  .tracking-identity > span {
+    display: flex;
     width: 100%;
     max-width: 100%;
   }

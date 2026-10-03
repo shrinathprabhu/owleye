@@ -5,6 +5,10 @@ const fallbackReports = { count: 0, since: 0 };
 
 /** Diagnostics must never throw, leak payloads, or flood a host console. */
 export function reportFailure(operation: string): void {
+  reportWarning(`${operation} failed; analytics work was skipped.`);
+}
+
+export function reportWarning(message: string): void {
   try {
     let reports = fallbackReports;
     try {
@@ -22,7 +26,7 @@ export function reportFailure(operation: string): void {
       reports.since = now;
     }
     if (reports.count++ >= 10) return;
-    console.warn(`[OwlEye] ${operation} failed; analytics work was skipped.`);
+    console.warn(`[OwlEye] ${message}`);
   } catch {
     /* Even a replaced or unavailable console is optional. */
   }
@@ -55,5 +59,15 @@ export function cleanup(...tasks: Array<() => void>): void {
 }
 
 export function debugLog(...args: unknown[]): void {
-  safely("debug logging", () => console.info("[OwlEye]", ...args));
+  safely("debug logging", () => {
+    const registry = instances<{ count: number; since: number }>("diagnostics");
+    const now = Date.now();
+    let budget = registry.get("debug");
+    if (!budget || now - budget.since >= 60_000) {
+      budget = { count: 0, since: now };
+      registry.set("debug", budget);
+    }
+    if (budget.count++ >= 100) return;
+    console.info("[OwlEye]", ...args);
+  });
 }

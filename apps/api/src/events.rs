@@ -263,7 +263,7 @@ fn explorer_query(
                 toString(min(occurred_at)) AS first_seen_at,
                 toString(max(occurred_at)) AS last_seen_at
             FROM owleye_events
-            WHERE {filters}
+            WHERE {filters} AND event_type != 'performance'
             GROUP BY key
         )
         ORDER BY {order}
@@ -317,7 +317,7 @@ fn demo_event_items(
             ("pageview", "pageview", "page_viewed", 100),
             ("external", "external", "signup_clicked", 39),
             ("rule", "rule", "pricing_cta_clicked", 21),
-            ("performance", "performance", "web_vital", 12),
+            ("page_session", "page_session", "page_session", 12),
         ],
         GroupBy::Page => &[
             ("/", "pageview", "page_viewed", 100),

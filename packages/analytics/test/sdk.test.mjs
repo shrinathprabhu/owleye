@@ -107,7 +107,8 @@ test("attributes SPA sessions to their starting page and closes each segment onc
   assert.equal(events[1].page.path, "/first");
   assert.equal(events[1].page.url, "https://shop.example/first");
   assert.equal(events[2].page.path, "/second");
-  assert.equal(events[2].page.referrer, "https://shop.example/first");
+  assert.equal(events[2].page.referrer, undefined);
+  assert.equal(events[2].page.referrer_host, undefined);
   assert.equal(events[2].page.search, undefined);
   assert.equal(events[2].page.hash, undefined);
   assert.equal(events[3].page.path, "/second");
@@ -496,6 +497,7 @@ test("tracks hash navigation once and exposes query/hash only by explicit opt-in
   const requests = captureRequests();
   const { useAnalytics } = await analyticsModule;
   const analytics = useAnalytics("site_test", {
+    trackHashChanges: true,
     captureHash: true,
     captureQuery: true,
     server: "https://api.example",
@@ -641,14 +643,20 @@ test("collects web vitals only after explicit performance opt-in", async () => {
 });
 
 test("stopping performance observation discards unsent measurements", async () => {
-  installBrowser("https://app.example/");
+  const browser = installBrowser("https://app.example/");
   const requests = captureRequests();
   const { trackWebVitals } = await performanceModule;
   const vitals = trackWebVitals("site_stop_vitals");
   await flush();
   const before = requestEvents(requests.calls).length;
   const paint = FakePerformanceObserver.forType("paint");
+  FakePerformanceObserver.forType("largest-contentful-paint").emit([
+    { startTime: 1500 },
+  ]);
   vitals.stop();
+  browser.document.visibilityState = "hidden";
+  browser.document.emit("visibilitychange");
+  browser.window.emit("pagehide");
   paint.emit([{ name: "first-contentful-paint", startTime: 1200 }]);
   await flush();
   assert.equal(requestEvents(requests.calls).length, before);
@@ -723,6 +731,7 @@ test("bounds opted-in page fields to the ingestion contract", async () => {
   const requests = captureRequests();
   const { useAnalytics } = await analyticsModule;
   const analytics = useAnalytics("site_test", {
+    trackHashChanges: true,
     captureHash: true,
     captureQuery: true,
     server: "https://api.example",
@@ -738,7 +747,7 @@ test("bounds opted-in page fields to the ingestion contract", async () => {
   assert.ok(Buffer.byteLength(pageView.page.url) <= 4_096);
 });
 
-test("obsolete DNT settings do not suppress analytics", async () => {
+test("obsolete browser DNT signals do not suppress analytics", async () => {
   installBrowser("https://app.example/", undefined, "1");
   navigator.msDoNotTrack = "1";
   window.doNotTrack = "yes";
@@ -746,7 +755,6 @@ test("obsolete DNT settings do not suppress analytics", async () => {
   const { useAnalytics } = await analyticsModule;
 
   const analytics = useAnalytics("site_test", {
-    respectDoNotTrack: true,
     server: "https://api.example",
   });
   analytics.track("dnt_does_not_block");
@@ -1773,7 +1781,7 @@ test("throwing console methods and rejected async enrichment cannot break tracki
 test("CDN initialization tolerates invalid attributes and failing script getters", () => {
   const browser = installBrowser("https://app.example/");
   captureRequests();
-  for (const entry of ["analytics", "rules", "performance"]) {
+  for (const entry of ["analytics", "rules", "performance", "full"]) {
     const source = readFileSync(
       new URL(`../dist/owleye.${entry}.iife.js`, import.meta.url),
       "utf8",
@@ -2357,4 +2365,595 @@ test("rule DOM captures keep ten fields, omit missing values, and preserve confi
   assert.equal(data.field0, "value0");
   assert.equal(data.field9, "value9");
   assert.equal(data.extra, undefined);
+});
+
+test("visible segments do not inflate pageviews and same-origin referrals are omitted", async () => {
+  const browser = installBrowser("https://shop.example/product");
+  browser.document.referrer = "https://shop.example/start";
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  const analytics = useAnalytics("visible_segments_regression");
+  cleanups.push(() => analytics.stop());
+  await flush();
+  for (let i = 0; i < 3; i++) {
+    browser.document.visibilityState = "hidden";
+    browser.document.emit("visibilitychange");
+    browser.window.emit("pagehide");
+    browser.document.visibilityState = "visible";
+    browser.document.emit("visibilitychange");
+  }
+  await flush();
+  const events = requestEvents(requests.calls);
+  assert.equal(events.filter((e) => e.type === "pageview").length, 1);
+  assert.equal(events.filter((e) => e.type === "page_session").length, 3);
+  assert.ok(
+    events.every(
+      (e) =>
+        e.page.referrer === undefined && e.page.referrer_host === undefined,
+    ),
+  );
+  browser.document.referrer = "https://news.shop.example/article";
+  analytics.pageview();
+  await flush();
+  assert.equal(
+    requestEvents(requests.calls)
+      .filter((e) => e.type === "pageview")
+      .at(-1).page.referrer_host,
+    "news.shop.example",
+  );
+});
+
+test("repeated initialization cannot start an explicitly gated controller, including CDN", async () => {
+  const browser = installBrowser("https://app.example/");
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  const analytics = useAnalytics("gated", { autoStart: false });
+  assert.equal(useAnalytics("gated"), analytics);
+  assert.equal(useAnalytics("gated", { autoStart: true }), analytics);
+  browser.document.currentScript = { dataset: { owleyeId: "gated" } };
+  runInThisContext(
+    readFileSync(
+      new URL("../dist/owleye.analytics.iife.js", import.meta.url),
+      "utf8",
+    ),
+  );
+  analytics.track("blocked");
+  assert.equal(requests.calls.length, 0);
+  analytics.start();
+  await flush();
+  assert.equal(requestEvents(requests.calls).length, 1);
+  analytics.stop();
+});
+
+test("conflicting privacy configuration warns and requires stop/recreate", async () => {
+  installBrowser("https://app.example/", "", "0", true);
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  const { trackWebVitals } = await performanceModule;
+  const warnings = [];
+  const previous = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  cleanups.push(() => {
+    console.warn = previous;
+  });
+  const first = useAnalytics("privacy_conflict");
+  assert.equal(
+    useAnalytics("privacy_conflict", { respectGlobalPrivacyControl: false }),
+    first,
+  );
+  first.start();
+  const vitals = trackWebVitals("privacy_conflict");
+  assert.equal(
+    trackWebVitals("privacy_conflict", { respectGlobalPrivacyControl: false }),
+    vitals,
+  );
+  assert.equal(requests.calls.length, 0);
+  assert.ok(
+    warnings.some(
+      (message) =>
+        message.includes("respectGlobalPrivacyControl") &&
+        message.includes("stop()"),
+    ),
+  );
+  first.stop();
+  vitals.stop();
+  const replacement = useAnalytics("privacy_conflict", {
+    respectGlobalPrivacyControl: false,
+  });
+  assert.notEqual(first, replacement);
+  await flush();
+  assert.equal(requestEvents(requests.calls).length, 1);
+  replacement.stop();
+});
+
+test("default routing ignores query/hash changes, including remounts, without suppressing pathname views", async () => {
+  const browser = installBrowser("https://app.example/start");
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  let analytics = useAnalytics("path_routes", {
+    captureQuery: true,
+    captureHash: true,
+  });
+  browser.window.history.pushState({}, "", "/start?tab=settings");
+  browser.window.history.replaceState({}, "", "/start?tab=settings#details");
+  browser.window.emit("hashchange");
+  analytics.stop();
+  analytics = useAnalytics("path_routes", {
+    captureQuery: true,
+    captureHash: true,
+  });
+  await flush();
+  assert.equal(requestEvents(requests.calls).length, 1);
+  browser.window.history.pushState({}, "", "/next?tab=settings#details");
+  await flush();
+  assert.equal(
+    requestEvents(requests.calls).filter((e) => e.type === "pageview").length,
+    2,
+  );
+  analytics.stop();
+});
+
+for (const option of ["trackQueryChanges", "trackHashChanges"]) {
+  test(`${option} counts only opted-in route changes without enabling URL capture`, async () => {
+    const browser = installBrowser("https://app.example/start");
+    const requests = captureRequests();
+    const { useAnalytics } = await analyticsModule;
+    const analytics = useAnalytics("optional_routes", { [option]: true });
+    browser.window.history.pushState({}, "", "/start?route=one");
+    browser.window.history.pushState({}, "", "/start?route=one#two");
+    browser.window.emit("hashchange");
+    browser.window.emit("popstate");
+    await flush();
+    const views = requestEvents(requests.calls).filter(
+      (e) => e.type === "pageview",
+    );
+    assert.equal(views.length, 2);
+    assert.ok(
+      views.every(
+        (e) =>
+          e.page.url === "https://app.example/start" &&
+          !e.page.search &&
+          !e.page.hash,
+      ),
+    );
+    analytics.stop();
+  });
+}
+
+test("CDN routing options work and manual mode avoids automatic views", async () => {
+  const browser = installBrowser("https://app.example/start");
+  const requests = captureRequests();
+  browser.document.currentScript = {
+    dataset: {
+      owleyeId: "cdn_routes",
+      owleyeTrackQueryChanges: "true",
+      owleyeTrackHashChanges: "true",
+    },
+  };
+  const bundle = readFileSync(
+    new URL("../dist/owleye.analytics.iife.js", import.meta.url),
+    "utf8",
+  );
+  runInThisContext(bundle);
+  browser.window.history.pushState({}, "", "/start?q=1");
+  browser.location.hash = "#next";
+  browser.window.emit("hashchange");
+  await flush();
+  assert.equal(
+    requestEvents(requests.calls).filter((e) => e.type === "pageview").length,
+    3,
+  );
+  browser.window.OwlEyeAnalytics.stop();
+  browser.document.currentScript = {
+    dataset: { owleyeId: "cdn_manual", owleyeAutoTrackPageviews: "false" },
+  };
+  const before = requests.calls.length;
+  runInThisContext(bundle);
+  browser.window.history.pushState({}, "", "/ignored");
+  assert.equal(requests.calls.length, before);
+  browser.window.OwlEyeAnalytics.pageview({
+    path: "/virtual",
+    title: "Virtual screen",
+  });
+  browser.document.visibilityState = "hidden";
+  browser.document.emit("visibilitychange");
+  browser.document.visibilityState = "visible";
+  browser.document.emit("visibilitychange");
+  browser.window.OwlEyeAnalytics.track("manual_action");
+  browser.window.OwlEyeAnalytics.pageview({ path: "/virtual/next" });
+  browser.window.OwlEyeAnalytics.stop();
+  await flush();
+  const events = requestEvents(requests.calls.slice(before));
+  assert.deepEqual(
+    events.map((e) => e.type),
+    ["pageview", "page_session", "external", "page_session", "pageview"],
+  );
+  assert.ok(
+    events
+      .slice(0, 4)
+      .every(
+        (e) =>
+          e.page.path === "/virtual" &&
+          e.page.url === "https://app.example/virtual",
+      ),
+  );
+});
+
+test("delayed Web Vitals and spans retain the measurement's starting page", async () => {
+  const browser = installBrowser(
+    "https://app.example/first?secret=token#hidden",
+  );
+  const requests = captureRequests();
+  const { trackPerf, trackWebVitals } = await performanceModule;
+  const vitals = trackWebVitals("attribution");
+  const end = trackPerf("attribution").start("long_task");
+  FakePerformanceObserver.forType("largest-contentful-paint").emit([
+    { startTime: 1500 },
+  ]);
+  browser.window.history.pushState({}, "", "/second");
+  browser.document.title = "Second page";
+  end();
+  browser.document.visibilityState = "hidden";
+  browser.document.emit("visibilitychange");
+  vitals.stop();
+  await flush();
+  const events = requestEvents(requests.calls);
+  assert.ok(events.some((e) => e.name === "long_task"));
+  assert.ok(events.some((e) => e.name === "web_vital_lcp"));
+  assert.ok(
+    events.every(
+      (e) =>
+        e.page.path === "/first" &&
+        e.page.url === "https://app.example/first" &&
+        e.page.title !== "Second page",
+    ),
+  );
+});
+
+test("late Web Vitals initialization uses document navigation URL, not an SPA route", async () => {
+  const browser = installBrowser("https://app.example/second?secret=later");
+  performance.getEntriesByType = () => [
+    {
+      name: "https://app.example/first?secret=original&utm_source=mail#hidden",
+      responseStart: 500,
+    },
+  ];
+  const requests = captureRequests();
+  const { trackWebVitals } = await performanceModule;
+  const vitals = trackWebVitals("late_vitals", { captureCampaigns: true });
+  FakePerformanceObserver.forType("paint").emit([
+    { name: "first-contentful-paint", startTime: 1000 },
+  ]);
+  vitals.stop();
+  await flush();
+  assert.ok(
+    requestEvents(requests.calls).every(
+      (e) =>
+        e.page.path === "/first" &&
+        e.page.url === "https://app.example/first?utm_source=mail" &&
+        !e.page.title,
+    ),
+  );
+});
+
+function captureDebug() {
+  const logs = [];
+  const previous = console.info;
+  console.info = (...args) => logs.push(args);
+  cleanups.push(() => {
+    console.info = previous;
+  });
+  return logs;
+}
+
+test("debug distinguishes zero acceptance, HTTP rejection, and malformed acknowledgements without payload leakage", async () => {
+  installBrowser("https://app.example/?private=SECRET");
+  const logs = captureDebug();
+  const previous = globalThis.fetch;
+  const responses = [
+    new Response(
+      JSON.stringify({ accepted: 0, dropped: 1, reason: "SECRET" }),
+      { status: 202 },
+    ),
+    new Response("SECRET", { status: 403 }),
+    new Response("SECRET"),
+    new Response("x".repeat(5000)),
+    new Response(JSON.stringify({ accepted: 1 })),
+  ];
+  globalThis.fetch = async () => responses.shift();
+  cleanups.push(() => {
+    globalThis.fetch = previous;
+  });
+  const { useAnalytics } = await analyticsModule;
+  const analytics = useAnalytics("debug_ack", {
+    autoTrackPageviews: false,
+    debug: true,
+  });
+  for (let i = 0; i < 5; i++) {
+    analytics.track("SECRET", { secret: "SECRET" });
+    await flush();
+    await flush();
+  }
+  analytics.stop();
+  const text = JSON.stringify(logs);
+  assert.match(text, /zero events/);
+  assert.match(text, /rejected: HTTP response/);
+  assert.match(text, /accepted count unavailable/);
+  assert.match(text, /API acknowledged events/);
+  assert.doesNotMatch(text, /SECRET/);
+});
+
+test("debug explains inactive, GPC, mock and backpressure drops; normal mode is silent", async () => {
+  const browser = installBrowser("https://app.example/", "", "0", true);
+  const logs = captureDebug();
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  const privacy = useAnalytics("debug_privacy", { debug: true });
+  privacy.stop();
+  const gate = useAnalytics("debug_gate", { debug: true, autoStart: false });
+  gate.track("blocked");
+  gate.stop();
+  const mock = useAnalytics("debug_mock", {
+    debug: true,
+    mock: true,
+    respectGlobalPrivacyControl: false,
+  });
+  mock.stop();
+  assert.equal(requests.calls.length, 0);
+  const before = logs.length;
+  const silent = useAnalytics("silent", {
+    mock: true,
+    respectGlobalPrivacyControl: false,
+  });
+  silent.stop();
+  assert.equal(logs.length, before);
+  const previous = globalThis.fetch;
+  const pending = [];
+  globalThis.fetch = () => new Promise((resolve) => pending.push(resolve));
+  cleanups.push(() => {
+    globalThis.fetch = previous;
+  });
+  const active = useAnalytics("debug_limit", {
+    debug: true,
+    respectGlobalPrivacyControl: false,
+    autoTrackPageviews: false,
+  });
+  for (let i = 0; i < 20; i++) active.track("burst");
+  assert.equal(pending.length, 8);
+  for (const resolve of pending) resolve(new Response("{}"));
+  active.stop();
+  await flush();
+  await flush();
+  const text = JSON.stringify(logs);
+  assert.match(text, /Global Privacy Control/);
+  assert.match(text, /waiting for explicit start/);
+  assert.match(text, /controller is inactive/);
+  assert.match(text, /mock mode/);
+  assert.match(text, /pending request limit/);
+});
+
+test("debug explains byte-budget and rate-budget drops without changing delivery limits", async () => {
+  installBrowser("https://app.example/");
+  const logs = captureDebug();
+  const { useAnalytics } = await analyticsModule;
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  Date.now = () => 1000000;
+  cleanups.push(() => {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  });
+  const pending = [];
+  globalThis.fetch = () => new Promise((resolve) => pending.push(resolve));
+  const analytics = useAnalytics("large_delivery", {
+    debug: true,
+    autoTrackPageviews: false,
+  });
+  for (let i = 0; i < 6; i++)
+    analytics.track("large", { data: "x".repeat(12000) });
+  assert.ok(pending.length > 0 && pending.length < 6);
+  assert.match(JSON.stringify(logs), /keepalive byte budget/);
+  const sent = pending.length;
+  for (const resolve of pending) resolve(new Response("{}"));
+  await flush();
+  await flush();
+  analytics.stop();
+  globalThis.fetch = async () => new Response("{}");
+  const silent = useAnalytics("rate_delivery", { autoTrackPageviews: false });
+  for (let i = sent; i < 200; i++) {
+    silent.track("event");
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const diagnostic = useAnalytics("rate_diagnostic", {
+    debug: true,
+    autoTrackPageviews: false,
+  });
+  diagnostic.track("event");
+  assert.match(JSON.stringify(logs), /event rate budget/);
+  silent.stop();
+  diagnostic.stop();
+});
+
+test("non-debug delivery cancels acknowledgement bodies without reading them", async () => {
+  installBrowser("https://app.example/");
+  const { useAnalytics } = await analyticsModule;
+  const original = globalThis.fetch;
+  let reads = 0;
+  let cancellations = 0;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 202,
+    body: {
+      getReader() {
+        reads++;
+        throw new Error("must not read");
+      },
+      cancel() {
+        cancellations++;
+      },
+    },
+  });
+  cleanups.push(() => {
+    globalThis.fetch = original;
+  });
+  const analytics = useAnalytics("no_debug");
+  await flush();
+  analytics.stop();
+  assert.equal(reads, 0);
+  assert.equal(cancellations, 1);
+});
+
+test("full CDN payload collects all event types and shares trackers with separate bundles", async () => {
+  const browser = installBrowser(
+    "https://app.example/?utm_source=mail&secret=private",
+  );
+  const requests = captureRequests({
+    rules: {
+      rules: [
+        {
+          id: "full_click",
+          name: "cta_clicked",
+          selector: "button",
+          type: "click",
+          capture_text: false,
+        },
+      ],
+    },
+  });
+  browser.document.currentScript = {
+    dataset: {
+      owleyeId: "full_cdn",
+      owleyeCaptureCampaigns: "true",
+      owleyeTrackHashChanges: "true",
+    },
+  };
+  const load = (name) =>
+    runInThisContext(
+      readFileSync(
+        new URL(`../dist/owleye.${name}.iife.js`, import.meta.url),
+        "utf8",
+      ),
+    );
+  load("full");
+  const analytics = browser.window.OwlEyeAnalytics;
+  const rules = browser.window.OwlEyeRules;
+  for (const name of ["full", "analytics", "rules", "performance"]) load(name);
+  await flush();
+  await flush();
+  assert.equal(browser.window.OwlEyeAnalytics, analytics);
+  assert.equal(browser.window.OwlEyeRules, rules);
+  assert.equal(
+    requests.calls.filter((r) => r.url.includes("/v1/rules")).length,
+    1,
+  );
+  assert.equal(
+    requestEvents(requests.calls).filter((e) => e.type === "pageview").length,
+    1,
+  );
+  assert.equal(FakePerformanceObserver.instances.length, 4);
+  analytics.track("full_custom", { complete: true });
+  browser.document.emit("click", {
+    target: new FakeElement("button"),
+    type: "click",
+  });
+  browser.window.OwlEyePerformance.start("full_span")();
+  await flush();
+  browser.location.hash = "#screen";
+  browser.window.emit("hashchange");
+  await flush();
+  browser.document.visibilityState = "hidden";
+  browser.document.emit("visibilitychange");
+  await flush();
+  const events = requestEvents(requests.calls);
+  for (const type of [
+    "pageview",
+    "page_session",
+    "external",
+    "rule",
+    "performance",
+  ])
+    assert.ok(
+      events.some((e) => e.type === type),
+      type,
+    );
+  assert.equal(events.filter((e) => e.type === "pageview").length, 2);
+  assert.ok(
+    events.every(
+      (e) =>
+        e.page.search === "?utm_source=mail" &&
+        !e.page.hash &&
+        !e.page.url.includes("private"),
+    ),
+  );
+  assert.ok(requests.calls.every((r) => r.options.credentials === "omit"));
+  assert.ok(
+    requests.calls.every(
+      (r) => r.url.includes("/v1/events") || r.url.includes("/v1/rules"),
+    ),
+    "full bundle must not download additional scripts",
+  );
+  analytics.stop();
+  rules.stop();
+  browser.window.OwlEyePerformance.observeVitals().stop();
+  assert.equal(browser.document.listeners.get("click").size, 0);
+  assert.ok(FakePerformanceObserver.instances.every((o) => o.disconnected));
+});
+
+test("full CDN payload respects GPC, mock mode, and the documented page-only autoStart gate", async () => {
+  const browser = installBrowser("https://app.example/", "", "0", true);
+  const requests = captureRequests();
+  const load = () =>
+    runInThisContext(
+      readFileSync(
+        new URL("../dist/owleye.full.iife.js", import.meta.url),
+        "utf8",
+      ),
+    );
+  browser.document.currentScript = { dataset: { owleyeId: "full_privacy" } };
+  load();
+  await flush();
+  assert.equal(requests.calls.length, 0);
+  assert.equal(FakePerformanceObserver.instances.length, 0);
+  browser.window.OwlEyeAnalytics.stop();
+  browser.window.OwlEyeRules.stop();
+  browser.window.OwlEyePerformance.observeVitals().stop();
+  browser.document.currentScript = {
+    dataset: {
+      owleyeId: "full_mock",
+      owleyeRespectGlobalPrivacyControl: "false",
+      owleyeMock: "true",
+    },
+  };
+  load();
+  await flush();
+  assert.equal(requests.calls.length, 0);
+  browser.window.OwlEyeAnalytics.stop();
+  browser.window.OwlEyeRules.stop();
+  browser.window.OwlEyePerformance.observeVitals().stop();
+  browser.document.currentScript = {
+    dataset: {
+      owleyeId: "full_delayed",
+      owleyeRespectGlobalPrivacyControl: "false",
+      owleyeAutoStart: "false",
+    },
+  };
+  load();
+  await flush();
+  assert.equal(
+    requestEvents(requests.calls).filter((e) => e.type === "pageview").length,
+    0,
+  );
+  assert.ok(requests.calls.some((r) => r.url.includes("/v1/rules")));
+  assert.ok(
+    requestEvents(requests.calls).some((e) => e.type === "performance"),
+  );
+  browser.window.OwlEyeAnalytics.start();
+  await flush();
+  assert.equal(
+    requestEvents(requests.calls).filter((e) => e.type === "pageview").length,
+    1,
+  );
+  browser.window.OwlEyeAnalytics.stop();
+  browser.window.OwlEyeRules.stop();
+  browser.window.OwlEyePerformance.observeVitals().stop();
 });

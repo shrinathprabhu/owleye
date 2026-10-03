@@ -6,10 +6,16 @@ import type {
   PerfEnd,
   WebVitalsController,
 } from "./types.js";
-import { instances, instanceKey } from "./internal/instances";
+import {
+  instances,
+  instanceKey,
+  rememberConfig,
+  checkConfig,
+} from "./internal/instances";
 import { normalizeEventName } from "./internal/bounds";
 import { createEvent, mergePerfRecords } from "./internal/events";
 import { createEmitter, type Emitter } from "./internal/transport";
+import { getPage } from "./internal/environment";
 import { collectWebVitals } from "./internal/web-vitals";
 
 export type {
@@ -47,7 +53,10 @@ export function trackWebVitals(
       const key = instanceKey(siteId, config);
       const controllers = instances<WebVitalsController>("vitals");
       const existing = controllers.get(key);
-      if (existing) return existing;
+      if (existing) {
+        checkConfig(existing, config);
+        return existing;
+      }
       const observation = collectWebVitals(createEmitter(siteId, config));
       const controller = {
         stop() {
@@ -59,7 +68,8 @@ export function trackWebVitals(
           );
         },
       };
-      if (typeof window !== "undefined") controllers.set(key, controller);
+      if (typeof window !== "undefined")
+        controllers.set(key, rememberConfig(controller, config));
       return controller;
     },
     { stop: noop },
@@ -79,6 +89,7 @@ class PerformanceTracker implements PerfController {
       () => {
         const normalizedPerfId = normalizeEventName(perfId);
         const startedAt = now();
+        const page = getPage(this.emitter.config);
         const startData = mergePerfRecords(records);
         let ended = false;
 
@@ -98,6 +109,7 @@ class PerformanceTracker implements PerfController {
                   start: startData,
                 },
                 {
+                  page,
                   pageCapture: this.emitter.config,
                 },
               ),

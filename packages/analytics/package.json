@@ -1,6 +1,6 @@
 {
   "name": "@owleye/analytics",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Privacy-preserving, cookie-free analytics SDK for OwlEye.",
   "license": "MIT",
   "homepage": "https://owleye.dev/docs/sdk/",
@@ -23,7 +23,8 @@
   "sideEffects": [
     "./dist/owleye.analytics.iife.js",
     "./dist/owleye.rules.iife.js",
-    "./dist/owleye.performance.iife.js"
+    "./dist/owleye.performance.iife.js",
+    "./dist/owleye.full.iife.js"
   ],
   "exports": {
     ".": {
@@ -45,14 +46,15 @@
     "./cdn/rules": "./dist/owleye.rules.iife.js",
     "./cdn/performance": "./dist/owleye.performance.iife.js",
     "./package.json": "./package.json",
-    "./integrity": "./dist/integrity.json"
+    "./integrity": "./dist/integrity.json",
+    "./cdn/full": "./dist/owleye.full.iife.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "pnpm clean && pnpm build:types && pnpm build:modules && pnpm build:cdn && node scripts/write-integrity.mjs",
-    "build:cdn": "pnpm build:cdn:analytics && pnpm build:cdn:rules && pnpm build:cdn:performance",
+    "build:cdn": "pnpm build:cdn:analytics && pnpm build:cdn:rules && pnpm build:cdn:performance && pnpm build:cdn:full",
     "build:cdn:analytics": "OWLEYE_CDN_ENTRY=browser OWLEYE_CDN_NAME=OwlEyeAnalytics vite build --config vite.cdn.config.ts",
     "build:cdn:rules": "OWLEYE_CDN_ENTRY=browser-rules OWLEYE_CDN_NAME=OwlEyeRules vite build --config vite.cdn.config.ts",
     "build:cdn:performance": "OWLEYE_CDN_ENTRY=browser-performance OWLEYE_CDN_NAME=OwlEyePerformance vite build --config vite.cdn.config.ts",
@@ -61,7 +63,8 @@
     "clean": "rm -rf dist",
     "size": "node scripts/check-bundle-size.mjs",
     "test": "pnpm build && node --test test/*.test.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:cdn:full": "OWLEYE_CDN_ENTRY=browser-full OWLEYE_CDN_NAME=OwlEyeFull vite build --config vite.cdn.config.ts"
   },
   "devDependencies": {
     "typescript": "6.0.3",

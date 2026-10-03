@@ -4,6 +4,10 @@ import { defineConfig } from "vite";
 import { version } from "./package.json";
 
 const entries = {
+  "browser-full": {
+    file: "src/browser-full.ts",
+    output: "owleye.full.iife.js",
+  },
   browser: {
     file: "src/browser.ts",
     output: "owleye.analytics.iife.js",

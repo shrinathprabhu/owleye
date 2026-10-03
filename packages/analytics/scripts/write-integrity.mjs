@@ -7,6 +7,7 @@ const { name, version } = JSON.parse(
   await readFile(new URL("package.json", root), "utf8"),
 );
 const files = [
+  "owleye.full.iife.js",
   "owleye.analytics.iife.js",
   "owleye.rules.iife.js",
   "owleye.performance.iife.js",
@@ -25,4 +26,4 @@ await writeFile(
   new URL("dist/integrity.json", root),
   `${JSON.stringify({ name, version, files: integrity }, null, 2)}\n`,
 );
-console.log("Wrote SHA-384 integrity for all three standalone SDK bundles.");
+console.log("Wrote SHA-384 integrity for all standalone SDK bundles.");

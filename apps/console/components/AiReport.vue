@@ -24,9 +24,34 @@ const visibleKind = computed(() =>
     : (options.value[0] ?? "none"),
 );
 const exporting = ref(false);
+function downloadData() {
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(evidence.value, null, 2)], {
+      type: "application/json",
+    }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "owleye-report.json";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 const exportError = ref("");
+const availableMetrics = computed(() =>
+  Object.fromEntries(
+    Object.entries(metricLabels).filter(([key]) =>
+      evidence.value.metric === "value"
+        ? key === "value" || key === "events"
+        : key !== "value",
+    ),
+  ),
+);
 const hasData = computed(() =>
-  evidence.value.rows.some((row) => row[metric.value] > 0),
+  evidence.value.rows.some((row) =>
+    metric.value === "value"
+      ? row.value !== undefined && Number.isFinite(row.value) && row.events > 0
+      : (row[metric.value] ?? 0) > 0,
+  ),
 );
 async function download() {
   if (exporting.value) return;
@@ -67,7 +92,7 @@ async function download() {
         >Metric
         <select v-model="metric" aria-label="Chart metric">
           <option
-            v-for="(label, value) in metricLabels"
+            v-for="(label, value) in availableMetrics"
             :key="value"
             :value="value"
           >
@@ -104,6 +129,9 @@ async function download() {
       </button>
     </div>
     <p v-if="exportError" role="alert">{{ exportError }}</p>
+    <button type="button" class="text-button" @click="downloadData">
+      Download supporting data (JSON)
+    </button>
     <details>
       <summary>
         Supporting data · {{ evidence.rows.length }}
@@ -143,6 +171,9 @@ async function download() {
               <th scope="col">Group</th>
               <th v-if="evidence.report !== 'funnel'" scope="col">Events</th>
               <th v-if="evidence.report !== 'funnel'" scope="col">Pageviews</th>
+              <th v-if="evidence.metric === 'value'" scope="col">
+                Measurement
+              </th>
               <th scope="col">Visitors</th>
               <th v-if="evidence.report !== 'funnel'" scope="col">Sessions</th>
             </tr>
@@ -155,6 +186,9 @@ async function download() {
               </td>
               <td v-if="evidence.report !== 'funnel'">
                 {{ row.pageviews.toLocaleString() }}
+              </td>
+              <td v-if="evidence.metric === 'value'">
+                {{ row.value?.toLocaleString() ?? "—" }}
               </td>
               <td>{{ row.visitors.toLocaleString() }}</td>
               <td v-if="evidence.report !== 'funnel'">

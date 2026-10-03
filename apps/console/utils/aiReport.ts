@@ -1,6 +1,7 @@
 import type { AiEvidence, AiMetric, AiChart } from "../types/ai.ts";
 
 export const metricLabels: Record<AiMetric, string> = {
+  value: "Measurement",
   events: "Events",
   pageviews: "Pageviews",
   visitors: "Visitors",
@@ -34,7 +35,7 @@ export function reportScope(evidence: AiEvidence) {
 export function reportNotes(evidence: AiEvidence) {
   const notes = [
     "Visitors and sessions are approximate distinct estimates. Do not sum bucket distinct counts into a period total.",
-    "Only active analytics is included; performance and session lifecycle events are excluded.",
+    "Only retained data from the selected dataset is included.",
   ];
   if (evidence.groups_suppressed_below_visitors)
     notes.push(
@@ -82,7 +83,9 @@ export function chartOptions(
     return [];
   if (evidence.rows.length < 2) return [];
   if (["daily", "weekly"].includes(evidence.report)) return ["line", "bar"];
-  if (evidence.rows.filter((row) => row[metric] > 0).length < 2) return [];
+  if (metric === "value") return ["bar"];
+  if (evidence.rows.filter((row) => (row[metric] ?? 0) > 0).length < 2)
+    return [];
   return ["bar", "pie", "donut"];
 }
 export function defaultChart(evidence: AiEvidence): AiChart {
@@ -95,7 +98,7 @@ export function chartPoints(evidence: AiEvidence, metric: AiMetric) {
   if (!["daily", "weekly"].includes(evidence.report))
     return evidence.rows.map((row) => ({
       label: reportLabel(row.label, evidence.report),
-      value: row[metric],
+      value: row[metric] ?? null,
     }));
   const values = new Map(evidence.rows.map((row) => [row.label, row[metric]]));
   const cursor = new Date(`${evidence.start_date}T00:00:00Z`);
@@ -110,7 +113,9 @@ export function chartPoints(evidence: AiEvidence, metric: AiMetric) {
       label,
       value:
         values.get(label) ??
-        (evidence.groups_suppressed_below_visitors ? null : 0),
+        (metric === "value" || evidence.groups_suppressed_below_visitors
+          ? null
+          : 0),
     });
     cursor.setUTCDate(cursor.getUTCDate() + (weekly ? 7 : 1));
   }

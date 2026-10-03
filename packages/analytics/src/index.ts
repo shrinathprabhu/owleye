@@ -7,7 +7,13 @@ import type {
   OwlTrackRecords,
 } from "./types.js";
 import { createEvent, mergeTrackRecords } from "./internal/events";
-import { instances, instanceKey, firstPageStart } from "./internal/instances";
+import {
+  instances,
+  instanceKey,
+  firstPageStart,
+  rememberConfig,
+  checkConfig,
+} from "./internal/instances";
 import { getPage } from "./internal/environment";
 import { onNavigation } from "./internal/navigation";
 import { createEmitter, type Emitter } from "./internal/transport";
@@ -44,7 +50,7 @@ export function useAnalytics(
       const controllers = instances<AnalyticsController>("analytics");
       const existing = controllers.get(key);
       if (existing) {
-        if (config?.autoStart !== false) existing.start();
+        checkConfig(existing, config);
         return existing;
       }
 
@@ -52,7 +58,7 @@ export function useAnalytics(
       controller = new OwlEyeAnalytics(siteId, config, key, () => {
         if (controllers.get(key) === controller) controllers.delete(key);
       });
-      controllers.set(key, controller);
+      controllers.set(key, rememberConfig(controller, config));
       return controller.startAndReturn();
     },
     {
@@ -83,6 +89,7 @@ class OwlEyeAnalytics implements AnalyticsController {
 
   startAndReturn(): AnalyticsController {
     if (this.emitter.config.autoStart) this.start();
+    else this.emitter.diagnose("suppressed: waiting for explicit start()");
     return this;
   }
 
@@ -106,14 +113,21 @@ class OwlEyeAnalytics implements AnalyticsController {
       const started = safely(
         "analytics startup",
         () => {
-          this.beginPage(firstPageStart(this.key));
+          if (this.emitter.config.autoTrackPageviews) {
+            this.beginPage(firstPageStart(this.key, this.emitter.config));
 
-          this.removeNavigationListener = onNavigation((change) => {
-            if (!this.active) return;
-            this.closePage();
-            firstPageStart(this.key);
-            this.beginPage(true, change.from);
-          });
+            this.removeNavigationListener = onNavigation((change) => {
+              if (!this.active) {
+                this.emitter.diagnose(
+                  "suppressed: analytics controller is inactive",
+                );
+                return;
+              }
+              this.closePage();
+              firstPageStart(this.key, this.emitter.config);
+              this.beginPage(true, change.from);
+            }, this.emitter.config);
+          }
 
           window.addEventListener("pagehide", this.handlePageExit);
           window.addEventListener("pageshow", this.handlePageShow);
@@ -149,7 +163,10 @@ class OwlEyeAnalytics implements AnalyticsController {
 
   track = (eventName: string, ...records: OwlTrackRecords): void => {
     return safely("custom event", () => {
-      if (!this.active) return;
+      if (!this.active) {
+        this.emitter.diagnose("suppressed: analytics controller is inactive");
+        return;
+      }
 
       const mergedRecords = mergeTrackRecords(records);
       const eventRecords = this.globalRecords
@@ -165,7 +182,12 @@ class OwlEyeAnalytics implements AnalyticsController {
                 records: eventRecords,
               }
             : undefined,
-          { pageCapture: this.emitter.config },
+          {
+            pageCapture: this.emitter.config,
+            page: this.emitter.config.autoTrackPageviews
+              ? undefined
+              : this.activePage?.page,
+          },
         ),
       );
     });
@@ -173,10 +195,20 @@ class OwlEyeAnalytics implements AnalyticsController {
 
   pageview = (page: Partial<OwlPage> = {}): void => {
     return safely("pageview", () => {
-      if (!this.active) return;
+      if (!this.active) {
+        this.emitter.diagnose("suppressed: analytics controller is inactive");
+        return;
+      }
       this.closePage();
       this.beginPage(true, undefined, {
-        ...getPage(this.emitter.config),
+        ...getPage(
+          this.emitter.config,
+          undefined,
+          page.url ??
+            (page.path
+              ? new URL(page.path, window.location.href).href
+              : undefined),
+        ),
         ...page,
       });
     });
@@ -238,18 +270,21 @@ class OwlEyeAnalytics implements AnalyticsController {
 
   private readonly handlePageShow = guarded("handlePageShow", (): void => {
     if (!this.active || !this.activePage?.closed) return;
-    this.beginPage(false);
+    this.beginPage(false, undefined, this.activePage.page);
   });
 
   private readonly handleVisibilityChange = guarded(
     "handleVisibilityChange",
     (): void => {
-      if (!this.active) return;
+      if (!this.active) {
+        this.emitter.diagnose("suppressed: analytics controller is inactive");
+        return;
+      }
 
       if (document.visibilityState === "hidden") {
         this.closePage();
       } else if (this.activePage?.closed) {
-        this.beginPage(false);
+        this.beginPage(false, undefined, this.activePage.page);
       }
     },
   );

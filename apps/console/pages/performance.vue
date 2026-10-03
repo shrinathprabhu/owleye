@@ -8,8 +8,9 @@ useHead({ title: "Web Vitals · OWLEYE" });
     eyebrow="Real-user measurements"
     permission="analytics_read"
     title="Web Vitals"
-    v-slot="{ site }"
+    v-slot="{ site, apiBase }"
   >
+    <PerformanceSetup v-if="site" :site-id="site.tracking_id" :api-base="apiBase" />
     <PerformanceExplorer :site-id="site?.tracking_id" />
   </ConsoleSectionShell>
 </template>

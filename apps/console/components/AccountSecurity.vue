@@ -174,7 +174,7 @@ async function verified() {
       ><template v-if="!user.is_admin"
         ><p>
           Type DELETE MY ACCOUNT to delete your account. Owned apps must be
-          transferred or deleted first.
+          deleted first. App ownership transfer is not currently supported.
         </p>
         <input v-model="deletion" aria-label="Deletion confirmation" /><button
           class="button danger"

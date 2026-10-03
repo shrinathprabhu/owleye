@@ -8,8 +8,14 @@ export interface OwlConfig {
    * @default true
    */
   autoStart?: boolean;
+  /** Automatically count the initial page and browser URL navigation. Disable for manual/memory routers. @default true */
+  autoTrackPageviews?: boolean;
+  /** Count query-only navigation. Does not enable query capture. @default false */
+  trackQueryChanges?: boolean;
+  /** Count hash-only navigation. Does not enable hash capture. @default false */
+  trackHashChanges?: boolean;
   /**
-   * Print payloads and transport decisions to the browser console.
+   * Print delivery decisions and numeric acknowledgements, without event payloads.
    * Failures always produce bounded warnings, even when debug is false.
    *
    * @default false
@@ -45,11 +51,6 @@ export interface OwlConfig {
    */
   captureHash?: boolean;
   /**
-   * @deprecated Do Not Track is obsolete and is no longer consulted.
-   * Retained as an ignored option for source compatibility.
-   */
-  respectDoNotTrack?: boolean;
-  /**
    * Disable tracking when the browser enables Global Privacy Control.
    * This is a browser-side check; the ingestion API does not filter requests
    * based on DNT or Sec-GPC headers.
@@ -58,7 +59,7 @@ export interface OwlConfig {
    */
   respectGlobalPrivacyControl?: boolean;
   /**
-   * OwlEye hosted API base URL. Override only for an approved test environment.
+   * OwlEye API base URL. Override for self-hosting, a configured proxy, or testing.
    *
    * @default "https://api.owleye.dev"
    */
@@ -103,7 +104,7 @@ export interface PerfController {
 }
 
 export interface WebVitalsController {
-  /** Flush final page-lifecycle values and remove every observer/listener. */
+  /** Discard pending measurements and remove every observer/listener. Already-started requests cannot be retracted. */
   stop(): void;
 }
 

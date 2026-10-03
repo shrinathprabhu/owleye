@@ -14,7 +14,7 @@ import { useAnalytics, type OwlConfig, type OwlRecord, type AnalyticsController,
 import { trackRules, type OwlRulesConfig, type RuleEnricher, type RulesController } from "@owleye/analytics/rules";
 import { trackPerf, trackWebVitals, type PerfController, type PerfEnd, type WebVitalsController } from "@owleye/analytics/performance";
 
-const config = { captureCampaigns: true, autoStart: false } satisfies OwlConfig;
+const config = { captureCampaigns: true, autoStart: false, autoTrackPageviews: false, trackQueryChanges: true, trackHashChanges: true } satisfies OwlConfig;
 const fields = { plan: "business", seats: 3 } satisfies OwlRecord;
 const analytics: AnalyticsController = useAnalytics("site", config);
 analytics.start();

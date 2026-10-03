@@ -148,7 +148,9 @@ pub(super) async fn plan_with_catalog(
     ]), Some(json!({
         "type":"object", "additionalProperties":false,
         "properties": {
-            "report":{"type":"string", "enum":["totals","daily","weekly","country","city","event","campaign","funnel","browser","device","os","clarification","unsupported"]},
+            "dataset":{"type":"string","enum":["events","performance","engagement","uptime"]},
+            "measure":{"type":"string","enum":["count","mean","p50","p75","p95","total"]},
+            "report":{"type":"string", "enum":["totals","daily","weekly","country","city","event","page","campaign","funnel","browser","device","os","clarification","unsupported"]},
             "days":{"type":"integer", "minimum":1,"maximum":366},
             "offset_days":{"type":"integer","minimum":0,"maximum":36500},
             "period":{"type":"string","enum":["rolling","this_week","last_week","this_month","last_month","custom"]},
@@ -162,9 +164,9 @@ pub(super) async fn plan_with_catalog(
             "steps":{"type":"array","maxItems":3,"items":{"type":"object","additionalProperties":false,"properties":{"label":{"type":"string"},"events":strings,"properties":properties},"required":["label","events","properties"]}},
             "clarification":{"type":["string","null"]},
             "chart":{"type":"string","enum":["auto","none","line","bar","pie","donut"]},
-            "metric":{"type":"string","enum":["events","pageviews","visitors","sessions"]},
+            "metric":{"type":"string","enum":["events","pageviews","visitors","sessions","value"]},
             "output":{"type":"string","enum":["text","pdf"]}
-        }, "required":["report","days","offset_days","period","start_date","end_date","country","browser","device","os","cities","events","campaigns","properties","steps","clarification","chart","metric","output"]
+        }, "required":["dataset","measure","report","days","offset_days","period","start_date","end_date","country","browser","device","os","cities","events","campaigns","properties","steps","clarification","chart","metric","output"]
     }))).await?;
     let mut plan: ReportPlan = serde_json::from_str(&result).map_err(|_| unavailable())?;
     // A planner may attach a valid clarification while retaining its tentative report.

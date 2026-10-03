@@ -187,7 +187,7 @@ fn live_sql(site: &str, event: Option<&str>, now: DateTime<Utc>) -> String {
       ('pages',if(url_path='','/',url_path)), ('countries',if(country='','Unknown country',country)),
       ('campaigns',if(utm_campaign='','No campaign',utm_campaign)), ('referrers',if(referrer_host='','Direct',referrer_host)),
       ('events',if(event_name='',event_type,event_name))] AS bucket
-    WHERE site_id = {} AND occurred_at >= {start} AND occurred_at < {end} AND {ACTIVE_ROW_PREDICATE}
+    WHERE site_id = {} AND occurred_at >= {start} AND occurred_at < {end} AND event_type != 'performance' AND {ACTIVE_ROW_PREDICATE}
     GROUP BY bucket ORDER BY kind, events DESC, label LIMIT 30 BY kind
     SETTINGS max_execution_time=5, max_threads=2, output_format_json_quote_64bit_integers=0"#,
         clickhouse_string(site)

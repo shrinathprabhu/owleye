@@ -1,5 +1,7 @@
 import type { OwlConfig } from "../types";
 import { assertSiteId, normalizeConfig } from "./config";
+import { navigationKey } from "./navigation";
+import { reportWarning } from "./safety";
 
 // Shared by ESM and CDN copies, scoped to this document (never server requests).
 const REGISTRY = Symbol.for("owleye.instances.v1");
@@ -20,12 +22,57 @@ export function instanceKey(siteId: string, config?: OwlConfig): string {
 
 // Retain only a bounded URL marker across stop/start, including framework effect
 // cleanup/remount. Real navigation and explicit pageview() still count normally.
-export function firstPageStart(key: string): boolean {
+export function firstPageStart(key: string, config: OwlConfig): boolean {
   const pages = instances<string>("pages");
-  const url = window.location.href;
+  const url = navigationKey(window.location.href, config);
   const changed = pages.get(key) !== url;
   pages.delete(key);
   pages.set(key, url);
   if (pages.size > 100) pages.delete(pages.keys().next().value!);
   return changed;
+}
+
+// Weak keys let stopped controllers be collected; share metadata across bundles.
+function configurations(): WeakMap<
+  object,
+  ReturnType<typeof normalizeConfig> & { enrichRule?: unknown }
+> {
+  const registry =
+    instances<
+      WeakMap<
+        object,
+        ReturnType<typeof normalizeConfig> & { enrichRule?: unknown }
+      >
+    >("configurations");
+  let configs = registry.get("controllers");
+  if (!configs) registry.set("controllers", (configs = new WeakMap()));
+  return configs;
+}
+
+export function rememberConfig<T extends object>(
+  controller: T,
+  config?: OwlConfig & { enrichRule?: unknown },
+): T {
+  configurations().set(controller, {
+    ...normalizeConfig(config),
+    enrichRule: config?.enrichRule,
+  });
+  return controller;
+}
+
+export function checkConfig(
+  controller: object,
+  config?: OwlConfig & { enrichRule?: unknown },
+): void {
+  if (!config) return;
+  const previous = configurations().get(controller);
+  if (!previous) return;
+  const next = { ...normalizeConfig(config), enrichRule: config.enrichRule };
+  const conflicts = (Object.keys(next) as Array<keyof typeof next>).filter(
+    (key) => config[key] !== undefined && previous[key] !== next[key],
+  );
+  if (conflicts.length)
+    reportWarning(
+      `Existing controller kept its configuration; ignored conflicting options: ${conflicts.join(", ")}. Call stop(), then initialize again to change options. Repeated initialization never starts a paused controller.`,
+    );
 }

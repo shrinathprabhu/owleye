@@ -152,15 +152,15 @@ fn catalog_query() -> String {
                 SELECT occurred_at, visitor_id,
                     arrayJoin(arrayConcat(
                         [('coverage', '', '')],
-                        if(event_type IN ('external', 'rule'), [('event', event_name, '')], []),
+                        if(event_type IN ('external', 'rule', 'performance', 'page_session'), [('event', event_name, '')], []),
                         if(city != '' AND match(country, '^[A-Z]{{2}}$'), [('city', city, country)], []),
                         if(utm_campaign != '', [('campaign', utm_campaign, '')], []),
-                        if(event_type IN ('external', 'rule'),
+                        if(event_type IN ('external', 'rule', 'performance', 'page_session'),
                             arrayMap(key -> ('property', key, event_name), JSONExtractKeys(payload_json, 'records')), [])
                     )) AS category
                 FROM owleye_events
-                PREWHERE site_id = {{site:String}} AND occurred_at <= now64(3)
-                    AND event_type IN ('pageview', 'external', 'rule')
+                WHERE site_id = {{site:String}} AND occurred_at <= now64(3)
+                    AND event_type IN ('pageview', 'external', 'rule', 'performance', 'page_session')
                     AND {ACTIVE_ROW_PREDICATE}
             )
             GROUP BY kind, name, qualifier
@@ -175,7 +175,7 @@ fn catalog_query() -> String {
 pub(super) async fn discover(state: &AppState, site: &str) -> Result<Catalog, ApiError> {
     // Only names and property KEYS leave ClickHouse, never property values or identifiers.
     // Low-volume categories are withheld; a missing entry is not proof of absence.
-    let rows: Vec<CatalogEntry> = state.clickhouse.query_ai_report(&catalog_query(), &[("param_site", site)], state.settings.ai.clickhouse_url.as_deref()).await.map_err(|_| ApiError::ServiceUnavailable("The app's analytics catalog could not be loaded; no prompt allowance was consumed.".into()))?;
+    let rows: Vec<CatalogEntry> = state.clickhouse.query_scoped_ai_report(&catalog_query(), &[("param_site", site)], state.settings.ai.clickhouse_url.as_deref()).await.map_err(|_| ApiError::ServiceUnavailable("The app's analytics catalog could not be loaded; no prompt allowance was consumed.".into()))?;
     let truncated = rows.iter().filter(|r| r.kind != "coverage").count() >= 100;
     Ok(Catalog {
         entries: rows

@@ -7,7 +7,12 @@ import {
   debugLog,
 } from "./internal/safety";
 import type { OwlConfig, RulesController } from "./types.js";
-import { instances, instanceKey } from "./internal/instances";
+import {
+  instances,
+  instanceKey,
+  rememberConfig,
+  checkConfig,
+} from "./internal/instances";
 import { createRuleCatalog, type RuleCatalog } from "./internal/rule-catalog";
 import { RuleConditionController } from "./internal/rule-conditions";
 import { RuleEventDispatcher } from "./internal/rule-dispatcher";
@@ -65,11 +70,14 @@ export function trackRules(
       const key = instanceKey(siteId, config);
       const controllers = instances<RulesController>("rules");
       const existing = controllers.get(key);
-      if (existing) return existing;
+      if (existing) {
+        checkConfig(existing, config);
+        return existing;
+      }
       const tracker = new RuleTracker(siteId, config, () => {
         if (controllers.get(key) === tracker) controllers.delete(key);
       });
-      controllers.set(key, tracker);
+      controllers.set(key, rememberConfig(tracker, config));
       return tracker.start();
     },
     { stop: noop },

@@ -1,6 +1,7 @@
 import { safely, guarded, cleanup, reportFailure } from "./safety";
 import type { WebVitalsController } from "../types";
 import { createEvent } from "./events";
+import { getPage } from "./environment";
 import type { Emitter } from "./transport";
 
 type MetricName = "CLS" | "FCP" | "INP" | "LCP" | "TTFB";
@@ -25,6 +26,14 @@ export function collectWebVitals(emitter: Emitter): WebVitalsController {
     return { stop() {} };
   }
 
+  // Document-lifetime metrics retain the document URL, even if observation starts
+  // after an SPA route change. Never attach the later route title to this URL.
+  const navigation = safely<PerformanceEntry | undefined>(
+    "document timing URL",
+    () => performance.getEntriesByType("navigation")[0],
+    undefined,
+  );
+  const page = getPage(emitter.config, undefined, navigation?.name);
   const observers: PerformanceObserver[] = [];
   const sent = new Set<MetricName>();
   let cls = 0;
@@ -51,7 +60,7 @@ export function collectWebVitals(emitter: Emitter): WebVitalsController {
           rating: rating(metric, rounded),
           value: rounded,
         },
-        { pageCapture: emitter.config },
+        { page, pageCapture: emitter.config },
       ),
     );
   };

@@ -9,7 +9,7 @@ useHead({ title: "API Keys · OWLEYE" });
     eyebrow="App credentials"
     description="Choose credentials for sending events or accessing this app’s analytics."
     permission="rules_write"
-    v-slot="{ demo, site }"
+    v-slot="{ apiBase, demo, site }"
   >
     <div v-if="!demo" class="settings-page-stack">
       <ApiCredentialGuide
@@ -17,6 +17,9 @@ useHead({ title: "API Keys · OWLEYE" });
         :site-id="site?.tracking_id"
         :can-manage-analytics="sitePermissions(site).settings_manage"
       />
+      <section v-if="sitePermissions(site).settings_manage" id="analytics-api" aria-label="Analytics API access">
+        <DeveloperSettings :api-base="apiBase" :demo="demo" :site-id="site?.id" />
+      </section>
       <ApiKeyManager
         id="ingestion-keys"
         :site-id="site?.id"

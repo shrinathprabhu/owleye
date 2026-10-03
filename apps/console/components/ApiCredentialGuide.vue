@@ -53,15 +53,15 @@ defineProps<{
           v-else-if="canManageAnalytics"
           class="text-button"
           :to="{
-            path: '/settings',
+            path: '/api-keys',
             query: siteId ? { site: siteId } : {},
             hash: '#analytics-api',
           }"
         >
-          Manage analytics keys in Settings
+          Manage analytics keys
         </NuxtLink>
         <p v-else class="panel-copy">
-          An app owner manages these keys in Settings.
+          An app owner manages these keys on the API Keys page.
         </p>
       </article>
     </div>

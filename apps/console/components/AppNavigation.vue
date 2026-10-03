@@ -32,6 +32,7 @@ function handleSelection(value: number | string) {
         @change="handleSelection"
       />
     </div>
+    <CopyTrackingId v-if="options.some(option => option.value === modelValue)" :value="modelValue" />
   </div>
 </template>
 

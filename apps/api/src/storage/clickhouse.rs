@@ -21,7 +21,13 @@ const INSERT_BATCH_INTERVAL: Duration = Duration::from_millis(100);
 const INSERT_QUEUE_CAPACITY: usize = 512;
 const CLICKHOUSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 // Bound request waiting; the queued batch retains its erasure fence until settled.
-const INSERT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(45);
+// Two destination tables, each with four 20-second attempts and 1/2/4s backoff.
+const INSERT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
+const INSERT_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
 #[cfg(test)]
 const FRESH_FACT_TABLES: &[&str] = &[EVENTS_TABLE, PERFORMANCE_TABLE, "owleye_uptime_checks"];
 
@@ -280,6 +286,14 @@ impl ClickHouse {
             self.execute(&statement.replacen("owleye_events", "owleye_performance", 1))
                 .await?;
         }
+        // Plain MergeTree does not deduplicate inserts by default. Enable a
+        // bounded block log before the writer can retry an ambiguous failure.
+        for table in [EVENTS_TABLE, PERFORMANCE_TABLE] {
+            self.execute(&format!(
+                "ALTER TABLE {table} MODIFY SETTING non_replicated_deduplication_window = 10000"
+            ))
+            .await?;
+        }
         let columns = EVENT_COLUMNS.join(", ");
         self.execute(&format!("CREATE OR REPLACE VIEW owleye_all_events SQL SECURITY INVOKER AS SELECT {columns} FROM owleye_events UNION ALL SELECT {columns} FROM owleye_performance")).await?;
 
@@ -427,7 +441,7 @@ impl ClickHouse {
             return;
         }
 
-        match time::timeout(CLICKHOUSE_REQUEST_TIMEOUT, completed).await {
+        match time::timeout(INSERT_COMPLETION_TIMEOUT, completed).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => tracing::warn!("ClickHouse writer stopped during shutdown"),
             Err(_) => tracing::warn!("timed out while draining the ClickHouse insert queue"),
@@ -708,8 +722,8 @@ impl ClickHouseWriter {
             completions.push(batch.completion);
         }
 
-        // A lost HTTP acknowledgement does not prove an insert failed. MergeTree
-        // does not deduplicate UUIDs; retrying here would double-count events.
+        // Each destination retries with its own stable deduplication token.
+        // Keep the erasure fences until all attempts have settled.
         let result = self.insert_events(&rows).await.map_err(|error| {
             tracing::error!(%error, rows = rows.len(), "ClickHouse insert outcome requires reconciliation");
             "ClickHouse did not acknowledge the event batch".to_owned()
@@ -740,15 +754,56 @@ impl ClickHouseWriter {
                 EVENTS_TABLE
             };
             let body = build_insert_body_for(&selected, table)?;
-            self.insert_body(body).await?;
+            self.insert_body_with_retries(body, &INSERT_RETRY_DELAYS)
+                .await?;
         }
         Ok(())
     }
 
-    async fn insert_body(&self, body: String) -> anyhow::Result<()> {
+    async fn insert_body_with_retries(
+        &self,
+        body: String,
+        delays: &[Duration; 3],
+    ) -> anyhow::Result<()> {
+        // A token identifies one table batch, not a visitor or a client request.
+        // Serialize once so retries preserve row order, IDs, timestamps and data.
+        let token = uuid::Uuid::new_v4().to_string();
+        for attempt in 0..=delays.len() {
+            match self.insert_body(&body, &token).await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let retryable = error.downcast_ref::<reqwest::Error>().is_some_and(|error| {
+                        error.is_timeout()
+                            || error.is_connect()
+                            || error.is_body()
+                            || error.is_request()
+                            || error.status().is_some_and(|status| {
+                                matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504)
+                            })
+                    });
+                    if !retryable || attempt == delays.len() {
+                        return Err(error);
+                    }
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        delay_ms = delays[attempt].as_millis() as u64,
+                        "retrying ClickHouse insert with the same deduplication token"
+                    );
+                    time::sleep(delays[attempt]).await;
+                }
+            }
+        }
+        unreachable!("the last attempt always returns")
+    }
+
+    async fn insert_body(&self, body: &str, token: &str) -> anyhow::Result<()> {
         let text = authenticated_post(&self.client, &self.url, self.auth.as_ref())
-            .query(&[("wait_end_of_query", "1")])
-            .body(body)
+            .query(&[
+                ("wait_end_of_query", "1"),
+                ("insert_deduplicate", "1"),
+                ("insert_deduplication_token", token),
+            ])
+            .body(body.to_owned())
             .send()
             .await?
             .error_for_status()?
@@ -1167,3 +1222,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "clickhouse_retry_tests.rs"]
+mod retry_tests;

@@ -45,6 +45,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) live_cache: live::LiveCache,
+    pub(crate) public_overview_cache: public_dashboard::PublicOverviewCache,
     pub(crate) clickhouse: ClickHouse,
     pub(crate) geoip: Arc<GeoIp>,
     pub(crate) http: reqwest::Client,
@@ -68,6 +69,7 @@ pub async fn run(settings: Settings) -> anyhow::Result<()> {
 
     let state = AppState {
         live_cache: Default::default(),
+        public_overview_cache: Default::default(),
         clickhouse,
         geoip: Arc::new(GeoIp::open(settings.maxmind_db.as_deref())?),
         http: reqwest::Client::builder()

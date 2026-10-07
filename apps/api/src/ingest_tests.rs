@@ -71,6 +71,7 @@ pub(crate) async fn test_state() -> (AppState, StoredRows) {
     (
         AppState {
             live_cache: Default::default(),
+            public_overview_cache: Default::default(),
             clickhouse: ClickHouse::new(clickhouse_url).unwrap(),
             geoip: Arc::new(GeoIp::open(None).unwrap()),
             http: reqwest::Client::new(),

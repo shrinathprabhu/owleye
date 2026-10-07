@@ -1,3 +1,9 @@
+#[cfg(test)]
+mod tests;
+
+mod cache;
+pub(crate) use cache::PublicOverviewCache;
+
 use crate::{
     auth,
     privacy::audit::{self, AuditEvent},
@@ -404,14 +410,30 @@ pub(crate) async fn overview(
             &site.id,
         )
         .await?;
-    let data = stats::public_overview(&state.clickhouse, &site.tracking_id, days, &config).await?;
+    let key = cache::Key {
+        site_id: site.id.clone(),
+        tracking_id: site.tracking_id.clone(),
+        revision: revision.clone(),
+        days,
+        date: chrono::Utc::now().date_naive(),
+    };
+    let data = state
+        .public_overview_cache
+        .get_or_load(key, || async {
+            stats::public_overview(&state.clickhouse, &site.tracking_id, days, &config).await
+        })
+        .await?;
     // Revocation, changed selections, archived apps, and expired plans take effect
-    // even when they happen while ClickHouse is producing the response.
-    let (_, current, current_revision) = resolve(&state.sqlite, &query).await?;
-    if current_revision != revision || !current.enabled {
+    // even when serving cached data or waiting for an in-flight fetch.
+    let (current_site, current, current_revision) = resolve(&state.sqlite, &query).await?;
+    if current_site.id != site.id
+        || current_site.tracking_id != site.tracking_id
+        || current_revision != revision
+        || !current.enabled
+    {
         return Err(unavailable());
     }
     Ok(Json(
-        json!({"name": site.name, "max_days": config.max_days, "metrics": config.metrics, "data": data}),
+        json!({"name": current_site.name, "max_days": config.max_days, "metrics": config.metrics, "data": data}),
     ))
 }

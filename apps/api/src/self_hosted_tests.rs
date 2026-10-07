@@ -18,6 +18,7 @@ pub(crate) async fn test_state() -> AppState {
     let sqlite = sqlite::connect("sqlite::memory:").await.unwrap();
     AppState {
         live_cache: Default::default(),
+        public_overview_cache: Default::default(),
         clickhouse: ClickHouse::new("http://127.0.0.1:1".into()).unwrap(),
         geoip: Arc::new(crate::privacy::geoip::GeoIp::open(None).unwrap()),
         http: reqwest::Client::new(),

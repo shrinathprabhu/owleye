@@ -30,4 +30,4 @@ OS, device, crawler/AI-agent, and IP geolocation parsing remain backend responsi
 
 Publish from the public `shrinathprabhu/owleye` repository after committing the SDK changes there. Its existing release workflow accepts `v1.0.2` or `@owleye/analytics@1.0.2`, then rebuilds, tests, checks bundle sizes, inspects the package, and publishes with npm provenance. Preparing these files does not publish the package or create a tag/release.
 
-After npm publication, update application dependency pins/lockfiles and deployed installation snippets to `1.0.2`. The `1.0.2` npm/CDN examples are usable only after publication.
+Repository package versions and current installation snippets are aligned to `1.0.2`. Hosted frontends use the local `workspace:1.0.2` SDK and the hosted repository root commands build it before starting or checking the app, so repository builds do not depend on npm publication. The external `1.0.2` npm/CDN examples are usable only after publication.

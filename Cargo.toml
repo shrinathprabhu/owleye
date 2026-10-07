@@ -7,7 +7,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/shrinathprabhu/owleye"
 rust-version = "1.95"
-version = "1.0.0"
+version = "1.0.2"
 
 [workspace.dependencies]
 anyhow = "1"

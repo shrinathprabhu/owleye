@@ -9,7 +9,7 @@ const props = defineProps<{
 const isOpen = ref(false);
 const copyState = ref<"idle" | "copied" | "failed">("idle");
 
-const installSnippet = "pnpm add @owleye/analytics@1.0.1";
+const installSnippet = "pnpm add @owleye/analytics@1.0.2";
 const trackingSnippet = computed(() =>
   trackingSetupSnippet(props.siteId, props.apiBase),
 );

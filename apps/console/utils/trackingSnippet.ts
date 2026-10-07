@@ -23,10 +23,10 @@ export function trackingSetupPrompt(siteId: string, apiBase: string) {
 
 Public tracking ID: ${JSON.stringify(siteId)}
 OwlEye API base URL: ${JSON.stringify(server)}
-SDK reference: https://github.com/shrinathprabhu/owleye/blob/v1.0.1/packages/analytics/README.md
+SDK reference: https://github.com/shrinathprabhu/owleye/blob/v1.0.2/packages/analytics/README.md
 CDN reference: https://owleye.dev/docs/cdn/
 
-For a bundled app, install @owleye/analytics@1.0.1 and initialize useAnalytics from that package once in a browser-only entrypoint with this tracking ID and { server: the API base URL above }. Keep initialization out of server rendering and avoid duplicate instances during navigation or component remounts. Initial page views and pathname navigation are automatic. Query/hash routing requires explicit configuration; memory routers require manual pageview calls. Follow the SDK reference.
+For a bundled app, install @owleye/analytics@1.0.2 and initialize useAnalytics from that package once in a browser-only entrypoint with this tracking ID and { server: the API base URL above }. Keep initialization out of server rendering and avoid duplicate instances during navigation or component remounts. Initial page views and pathname navigation are automatic. Query/hash routing requires explicit configuration; memory routers require manual pageview calls. Follow the SDK reference.
 
 For a plain HTML site without a bundler, use the documented CDN integration instead, with the same tracking ID and data-owleye-server set to the API base URL above. Use only one installation method. Do not install both CDN and npm tracking.
 

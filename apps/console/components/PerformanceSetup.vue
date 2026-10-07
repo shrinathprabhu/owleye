@@ -22,7 +22,7 @@ end();`,
 );
 const cdn = computed(
   () =>
-    `<script defer src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.1/dist/owleye.performance.iife.js" data-owleye-id="${props.siteId}"${options.value ? ` data-owleye-server="${props.apiBase}"` : ""}><` +
+    `<script defer src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.performance.iife.js" data-owleye-id="${props.siteId}"${options.value ? ` data-owleye-server="${props.apiBase}"` : ""}><` +
     `/script>`,
 );
 async function copy(text: string) {

@@ -1,6 +1,6 @@
 {
   "name": "@owleye/analytics",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Privacy-preserving, cookie-free analytics SDK for OwlEye.",
   "license": "MIT",
   "homepage": "https://owleye.dev/docs/sdk/",
@@ -50,7 +50,8 @@
     "./cdn/full": "./dist/owleye.full.iife.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "pnpm clean && pnpm build:types && pnpm build:modules && pnpm build:cdn && node scripts/write-integrity.mjs",

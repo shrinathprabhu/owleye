@@ -2,13 +2,15 @@
 
 A dependency-free, cookie-free browser analytics SDK for OwlEye.
 
+See [the changelog](./CHANGELOG.md) for SDK 1.0.2 changes. Version-pinned 1.0.2 examples below require publication to npm first.
+
 ## Install
 
 ```sh
-pnpm add @owleye/analytics@1.0.1
-# or: npm install @owleye/analytics@1.0.1
-# or: bun add @owleye/analytics@1.0.1
-# or: yarn add @owleye/analytics@1.0.1
+pnpm add @owleye/analytics@1.0.2
+# or: npm install @owleye/analytics@1.0.2
+# or: bun add @owleye/analytics@1.0.2
+# or: yarn add @owleye/analytics@1.0.2
 ```
 
 ```ts
@@ -38,7 +40,7 @@ Load the dependency-free CDN build with your site ID. Pin a published version in
 <script
   defer
   crossorigin="anonymous"
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.1/dist/owleye.analytics.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.analytics.iife.js"
   data-owleye-id="owl_your_tracking_id"
 ></script>
 <script>
@@ -85,18 +87,18 @@ The browser controls the `Sec-GPC` header; installing OwlEye does not enable it.
 
 Use `dist/owleye.full.iife.js` when you want page analytics, Console-managed rules, Web Vitals, and manual performance timers together. It is one self-contained JavaScript payload with shared code, not a loader that downloads three more scripts. It still makes the normal rules and event API requests. Keep the smaller individual bundles when you only need some features.
 
-Load the full bundle from the version-pinned CDN URL (available after 1.0.1 is published):
+Load the full bundle from the version-pinned CDN URL (available after 1.0.2 is published):
 
 ```html
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.1/dist/owleye.full.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.full.iife.js"
   data-owleye-id="owl_your_tracking_id"
   data-owleye-capture-campaigns="true"
 ></script>
 ```
 
-The npm export is `@owleye/analytics/cdn/full`. The full bundle is included starting with SDK 1.0.1. The CDN URL becomes available after that version is published to npm. You can also copy the built file to your own static assets. Its SHA-384 value is included in `dist/integrity.json` alongside the individual bundles.
+The npm export is `@owleye/analytics/cdn/full`. The full bundle is included starting with SDK 1.0.1. The version-pinned CDN URL becomes available after the corresponding version is published to npm. You can also copy the built file to your own static assets. Its SHA-384 value is included in `dist/integrity.json` alongside the individual bundles.
 
 All documented script attributes apply to the full bundle. They are read from the script tag and passed to all included modules. Analytics-only options (`autoStart`, `autoTrackPageviews`, `trackQueryChanges`, and `trackHashChanges`) still affect only page analytics. GPC, URL capture, mock, debug, and endpoint settings apply to all three modules. Function-based `enrichRule` still requires the module API; it cannot be supplied as an HTML attribute.
 
@@ -130,21 +132,21 @@ Load these scripts once with the same Tracking ID and endpoint. Keep `defer` (ra
 ```html
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.1/dist/owleye.analytics.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.analytics.iife.js"
   data-owleye-id="owl_your_tracking_id"
   data-owleye-capture-campaigns="true"
 ></script>
 <!-- Optional: enabled rules configured in Console -->
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.1/dist/owleye.rules.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.rules.iife.js"
   data-owleye-id="owl_your_tracking_id"
   data-owleye-capture-campaigns="true"
 ></script>
 <!-- Optional: automatic Web Vitals and manual timings -->
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.1/dist/owleye.performance.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.performance.iife.js"
   data-owleye-id="owl_your_tracking_id"
   data-owleye-capture-campaigns="true"
 ></script>
@@ -201,6 +203,12 @@ The performance bundle starts Web Vitals automatically. Manual spans use `window
 - Values: **string, finite number, or boolean** only. No `null`, `undefined`, arrays, nested objects, `Date` instances, bigint, functions, `NaN`, or infinities. Missing rule elements are omitted. Use an ISO string or numeric timestamp for a date; use named flat fields for structured concepts. JSON encoded as a string stays an opaque string, not queryable nested properties.
 
 Invalid manual data is logged and dropped by the SDK without throwing into your application. The API also validates custom properties. Check the request to `/v1/events` and its `accepted` count; look for the event in Console's Events page, UTM attribution in Campaigns, and automatic measurements in Web Vitals.
+
+## Browser identification
+
+The SDK sends a bounded browser name and version from supported UA tokens and low-entropy client-hint brands. Chrome, Google Chrome, and Chromium are normalized to `Chrome`; recognized specific identities take precedence over generic engine hints. Existing Brave API detection checks for the presence of `navigator.brave.isBrave`, without calling it, and leaves the product version unset unless a matching brand or token supplies one.
+
+A browser that exposes only Chrome identifiers remains `Chrome`, including Arc, Comet, Dia, or Brave in that situation. Explicit-token test fixtures do not prove that every shipping browser exposes a unique identity. The SDK does not probe for hidden browser identities or request high-entropy hints. OS, device, crawler/AI-agent, and IP geolocation parsing happen on the backend.
 
 ## Visitor identification and browser storage
 

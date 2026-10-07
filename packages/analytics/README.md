@@ -1,5 +1,10 @@
 # @owleye/analytics
 
+[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics)
+[![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml)
+[![Core bundle size (minified + gzip)](https://img.shields.io/bundlejs/size/%40owleye/analytics?format=minzip&label=core%20min%2Bgzip)](https://bundlejs.com/?q=%40owleye%2Fanalytics)
+[![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/packages/analytics/LICENSE)
+
 A dependency-free, cookie-free browser analytics SDK for OwlEye.
 
 See [the changelog](./CHANGELOG.md) for SDK 1.0.2 changes. Version-pinned 1.0.2 examples below require publication to npm first.
@@ -60,6 +65,8 @@ import { trackRules } from "@owleye/analytics/rules";
 Import `trackWebVitals` from `@owleye/analytics/performance` to opt into PerformanceObserver estimates. The pre-release `performance: true` core option has been removed so the core bundle actually excludes the optional collector. These estimates are marked `approximate: true`; they do not implement the full reference Web Vitals algorithms and must not be presented as CrUX-equivalent CLS or INP scores. The standalone performance entrypoint enables those field metrics automatically and also exposes manual spans. Measurements obey the same SDK GPC, URL-redaction, origin and privacy controls as other events. `captureCampaigns: true` retains only `utm_source`, `utm_medium`, and `utm_campaign`; unrelated query parameters remain excluded.
 
 Create the site in the console first. Allowed domains are optional: leave them blank to allow all browser origins, or add multiple domains to restrict tracking and rule delivery to matching hosts. Use the public tracking ID in browser code; keep API/developer secrets on your server. Verify `POST /v1/events` in the Network panel and check the response's `accepted` count: HTTP 202 can also acknowledge a privacy opt-out with zero events. Then confirm the event in the console. See the [quickstart](https://owleye.dev/docs/quickstart/) for framework setup and troubleshooting.
+
+The size badge estimates the minified and gzipped core npm entrypoint using bundlejs; optional rules, performance, and full CDN bundles have separate sizes. CI links to the public repository workflow, which includes the SDK tests.
 
 `pnpm size` checks the complete ESM consumer bundles, including shared chunks, and verifies that unused imports disappear. The core has no runtime dependencies and does not include the optional rules or performance collectors.
 

@@ -1,5 +1,9 @@
 # OwlEye
 
+[![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics)
+[![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/LICENSE)
+
 Cookie-free web and product analytics. [Use hosted OwlEye](https://owleye.dev), or self-host this MIT-licensed distribution.
 
 [Documentation](https://owleye.dev/docs/) · [npm](https://www.npmjs.com/package/@owleye/analytics) · [Status](https://status.owleye.dev) · [Source](https://github.com/shrinathprabhu/owleye)

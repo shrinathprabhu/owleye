@@ -879,6 +879,19 @@ fn demo_top_pages(profile: DemoTrafficProfile, pageviews: u64) -> Vec<TopPageSta
         .collect()
 }
 
+// Public breakdowns use exactly the signed-in Overview queries. Countries
+// retain every group; dimension tails roll into Other without losing counts.
+fn public_breakdown_query(filter: &str, dimension: &crate::public_dashboard::Breakdown) -> String {
+    use crate::public_dashboard::Breakdown;
+    let queries = LiveStatsQueries::from_filter(filter);
+    match dimension {
+        Breakdown::Countries => queries.countries,
+        Breakdown::Browsers => queries.browsers,
+        Breakdown::Devices => queries.devices,
+        Breakdown::OperatingSystems => queries.operating_systems,
+    }
+}
+
 /// A separate allowlisted response contract. Do not serialize the authenticated
 /// Overview response here: adding a private field must never publish it by default.
 pub(crate) async fn public_overview(
@@ -887,11 +900,11 @@ pub(crate) async fn public_overview(
     days: u16,
     config: &crate::public_dashboard::ShareConfig,
 ) -> Result<serde_json::Value, ApiError> {
-    use crate::public_dashboard::{Breakdown, Metric};
+    use crate::public_dashboard::Metric;
     use serde_json::{json, Map, Value};
     let range = StatsRange::recent(days, Utc::now().date_naive());
     let filter = range.filter(site_id);
-    let metrics = config
+    let mut metrics = config
         .metrics
         .iter()
         .map(|metric| {
@@ -905,6 +918,11 @@ pub(crate) async fn public_overview(
         })
         .collect::<Vec<_>>()
         .join(", ");
+    // Breakdown selection publishes both metrics, independently of headline
+    // cards. Deduplicate the audience total across categories, as Console does.
+    if !config.breakdowns.is_empty() {
+        metrics.push_str(", toUInt64(countIf(event_type = 'pageview')) AS audience_pageviews, toUInt64(uniqCombined64If(visitor_id, event_type = 'pageview')) AS audience_visitors");
+    }
     let totals: Vec<Value> = clickhouse
         .query_public_overview(&format!(
             "SELECT {metrics} FROM owleye_events WHERE {filter}"
@@ -931,6 +949,16 @@ pub(crate) async fn public_overview(
         "totals".into(),
         Value::Object(project(totals.first().unwrap_or(&Value::Null))),
     );
+    if !config.breakdowns.is_empty() {
+        let row = totals.first().unwrap_or(&Value::Null);
+        data.insert(
+            "audience_totals".into(),
+            json!({
+                "pageviews": row["audience_pageviews"].as_u64().unwrap_or(0),
+                "visitors": row["audience_visitors"].as_u64().unwrap_or(0),
+            }),
+        );
+    }
     if config.traffic {
         let rows: Vec<Value> = clickhouse.query_public_overview(&format!("SELECT toString(toDate(occurred_at, 'UTC')) AS date, {metrics} FROM owleye_events WHERE {filter} GROUP BY date ORDER BY date")).await?;
         let by_date = rows
@@ -949,21 +977,19 @@ pub(crate) async fn public_overview(
         data.insert("traffic".into(), json!(points));
     }
     for dimension in &config.breakdowns {
-        let expression = match dimension {
-            Breakdown::Countries => "if(country = '', 'Unknown', country)",
-            Breakdown::Browsers => &crate::privacy::user_agent::browser_sql("browser_name"),
-            Breakdown::Devices => "multiIf(lowerUTF8(device_type) = 'desktop', 'Desktop', lowerUTF8(device_type) = 'mobile', 'Mobile', lowerUTF8(device_type) = 'tablet', 'Tablet', 'Unknown')",
-            Breakdown::OperatingSystems => "multiIf(lowerUTF8(os_name) IN ('mac os x', 'mac osx', 'macos', 'mac os', 'os x'), 'Mac', os_name = '', 'Unknown', os_name)",
-        };
-        let rows: Vec<Value> = clickhouse.query_public_overview(&format!("SELECT {expression} AS name, toUInt64(count()) AS count FROM owleye_events WHERE {filter} AND event_type = 'pageview' GROUP BY name HAVING uniqCombined64(visitor_id) >= 5 ORDER BY count DESC, name ASC LIMIT 20")).await?;
+        let rows: Vec<Value> = clickhouse
+            .query_public_overview(&public_breakdown_query(&filter, dimension))
+            .await?;
+        // Project only the public aggregate fields; labels match Console.
         let safe_rows: Vec<Value> = rows
             .into_iter()
             .filter_map(|row| {
                 let name = row["name"].as_str()?;
-                if name.len() > 80 || name.contains(['@', '\n', '\r', '<', '>']) {
-                    return None;
-                }
-                Some(json!({"name": name, "count": row["count"].as_u64().unwrap_or(0)}))
+                Some(json!({
+                    "name": name,
+                    "count": row["count"].as_u64().unwrap_or(0),
+                    "visitors": row["visitors"].as_u64().unwrap_or(0),
+                }))
             })
             .collect();
         data.insert(dimension.key().into(), json!(safe_rows));
@@ -1290,5 +1316,77 @@ mod tests {
         assert!(queries.utm_campaigns.contains("utm_campaign"));
         assert!(queries.utm_campaigns.contains("event_type = 'pageview'"));
         assert!(queries.totals.contains(ACTIVE_ROW_PREDICATE));
+    }
+}
+
+#[cfg(test)]
+mod counting_regressions {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    #[ignore = "requires local ClickHouse binary; runs only synthetic SELECT queries"]
+    fn shared_breakdowns_preserve_small_groups_and_all_traffic() {
+        use crate::public_dashboard::Breakdown;
+        // One visitor across 25 categories: all categories have fewer than five
+        // visitors, and Other must deduplicate the tail rather than sum it.
+        let fixture = "(SELECT 'shared' AS site_id, 'pageview' AS event_type, 'same-visitor' AS visitor_id, concat('Country', toString(number)) AS country, concat('Browser', toString(number)) AS browser_name, 'desktop' AS device_type, 'Mac OSX' AS os_name FROM numbers(25))";
+        let run = |sql: String| -> Vec<Value> {
+            let path =
+                std::env::temp_dir().join(format!("owleye-sharing-{}", uuid::Uuid::new_v4()));
+            let output = std::process::Command::new("clickhouse")
+                .args(["local", "--path"])
+                .arg(&path)
+                .args([
+                    "--query",
+                    &format!(
+                        "{} SETTINGS output_format_json_quote_64bit_integers=0 FORMAT JSONEachRow",
+                        sql.replace("FROM owleye_events", &format!("FROM {fixture}"))
+                    ),
+                ])
+                .output()
+                .expect("local ClickHouse installed");
+            let _ = std::fs::remove_dir_all(path);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect()
+        };
+        let filter = "site_id = 'shared'";
+        let console = LiveStatsQueries::from_filter(filter);
+        for (dimension, console_query) in [
+            (Breakdown::Countries, console.countries),
+            (Breakdown::Browsers, console.browsers),
+            (Breakdown::OperatingSystems, console.operating_systems),
+            (Breakdown::Devices, console.devices),
+        ] {
+            let shared = run(public_breakdown_query(filter, &dimension));
+            assert_eq!(shared, run(console_query));
+            assert_eq!(
+                shared
+                    .iter()
+                    .map(|row| row["count"].as_u64().unwrap())
+                    .sum::<u64>(),
+                25
+            );
+            assert!(shared.iter().all(|row| row["visitors"] == 1));
+            match dimension {
+                Breakdown::Countries => assert_eq!(shared.len(), 25),
+                Breakdown::Browsers => {
+                    assert_eq!(shared.len(), 11);
+                    let other = shared.iter().find(|row| row["name"] == "Other").unwrap();
+                    assert_eq!(other["count"], 15);
+                    assert_eq!(other["visitors"], 1);
+                }
+                Breakdown::OperatingSystems => assert_eq!(shared[0]["name"], "macOS"),
+                Breakdown::Devices => assert_eq!(shared[0]["name"], "Desktop"),
+            }
+        }
     }
 }

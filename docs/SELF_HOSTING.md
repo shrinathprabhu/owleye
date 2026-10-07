@@ -98,7 +98,7 @@ In Console, select an app and open **Settings → Public Overview** as its owner
 
 Shared pages run in the same Console app on your server, for example `https://analytics.example.com/share?site_id=<app UUID>`. Optional URL links also use `/share`, with a URL-encoded `site` parameter. Existing `/p` links still work. No OwlEye website deployment or separate frontend is required; the Rust server serves the Console and `/v1/public/overview` on the same origin.
 
-Viewers need no account. Sharing is off by default; only the selected aggregates are returned, and breakdowns require at least five visitors per group. Turning sharing off revokes both link formats for subsequent requests. The page is marked `noindex, nofollow`. Your Console domain must be reachable by viewers; if a reverse proxy requires login for the entire domain, viewers must pass that proxy login too.
+Viewers need no account. Sharing is off by default; only the selected aggregates are returned. Selected breakdowns show both page views and unique visitors using the same queries as Console, without a minimum visitor threshold. All countries appear; browser/OS/device charts include their tail in Other, preserving all traffic. Turning sharing off revokes both link formats for subsequent requests. The page is marked `noindex, nofollow`. Your Console domain must be reachable by viewers; if a reverse proxy requires login for the entire domain, viewers must pass that proxy login too.
 
 ## Redeploy
 

@@ -6,6 +6,11 @@ import {
   type PublicBreakdown,
 } from "~/types/publicDashboard";
 import { orderedTrafficMetrics } from "~/utils/trafficMetrics";
+import {
+  breakdownItems,
+  breakdownLabel,
+  type BreakdownMetric,
+} from "~/utils/breakdownMetric";
 import { apiErrorStatus } from "~/utils/apiError";
 definePageMeta({ alias: ["/p"] });
 
@@ -19,6 +24,11 @@ useHead({
 const route = useRoute();
 const { publicApi } = useApi();
 const report = ref<PublicOverview | null>(null);
+const breakdownMetric = ref<BreakdownMetric>("pageviews");
+const metricLabel = computed(() => breakdownLabel(breakdownMetric.value));
+const audienceTotal = computed(
+  () => report.value?.data.audience_totals?.[breakdownMetric.value],
+);
 const pending = ref(true);
 const error = ref("");
 const selectedDays = ref<number>();
@@ -32,8 +42,7 @@ const primaryMetrics = computed(() =>
 const secondaryMetrics = computed(() =>
   metrics.value.filter((metric) => metric === "sessions"),
 );
-const emptyBreakdownMessage =
-  "No groups meet the public sharing minimum of 5 visitors for this period.";
+const emptyBreakdownMessage = "No page-view traffic in this range.";
 const audienceBreakdowns = computed(() =>
   (["browsers", "operating_systems", "devices"] as PublicBreakdown[])
     .filter((key) => report.value?.data[key] !== undefined)
@@ -53,6 +62,7 @@ watch(
   () => [route.query.site_id, route.query.site],
   () => {
     selectedDays.value = undefined;
+    breakdownMetric.value = "pageviews";
     void load();
   },
 );
@@ -192,15 +202,18 @@ async function load() {
               <p class="panel-kicker">Geography</p>
               <h2>Countries</h2>
             </div>
-            <span>Page views</span>
+            <BreakdownMetricToggle
+              v-if="report.data.audience_totals"
+              v-model="breakdownMetric"
+              label="Geography metric"
+            />
+            <span v-else>Page views</span>
           </div>
           <CountryGeoChart
-            :countries="report.data.countries"
+            :countries="breakdownItems(report.data.countries, breakdownMetric)"
+            :metric-label="metricLabel"
             :empty-message="emptyBreakdownMessage"
           />
-          <p class="breakdown-note">
-            Only country groups shared by the owner are shown.
-          </p>
         </article>
         <article
           v-if="audienceBreakdowns.length"
@@ -212,12 +225,20 @@ async function load() {
               <p class="panel-kicker">Audience &amp; technology</p>
               <h2>How people showed up</h2>
             </div>
-            <span>Page views</span>
+            <BreakdownMetricToggle
+              v-if="report.data.audience_totals"
+              v-model="breakdownMetric"
+              label="Audience metric"
+            />
+            <span v-else>Page views</span>
           </div>
           <p class="breakdown-note">
-            Page views only. Custom, rule, duration, and performance events are
-            excluded. Chart totals include only the displayed groups; privacy
-            filtering can make them lower than the overall total.
+            {{
+              breakdownMetric === "visitors"
+                ? "Visitors with a page view, deduplicated across this range. A visitor can appear in multiple categories; the center total counts them once."
+                : "Page views only. Custom, rule, duration, and performance events are excluded."
+            }}
+            The metric selection also applies to geography.
           </p>
           <div
             class="dimension-chart-grid"
@@ -230,7 +251,9 @@ async function load() {
             >
               <h3 :id="`${section.key}-title`">{{ section.label }}</h3>
               <DimensionDonutChart
-                :items="section.rows"
+                :items="breakdownItems(section.rows, breakdownMetric)"
+                :metric-label="metricLabel"
+                :total="audienceTotal"
                 :label="section.label"
                 :empty-message="emptyBreakdownMessage"
               />
@@ -287,8 +310,8 @@ async function load() {
       <footer>
         <p>
           Only statistics selected by the app owner are shown. Visitor and
-          session counts are estimates. Breakdowns show up to 20 groups with at
-          least 5 visitors.
+          session counts are estimates. Breakdowns use the same counts and
+          grouping as Console.
         </p>
         <a href="https://owleye.dev/">Cookie-free analytics by OwlEye ↗</a>
       </footer>

@@ -35,6 +35,12 @@ export type PublicOverview = {
     start_date: string;
     end_date: string;
     totals: Partial<Record<PublicMetric, number>>;
+    audience_totals?: { pageviews: number; visitors: number };
     traffic?: Array<{ date: string } & Partial<Record<PublicMetric, number>>>;
-  } & Partial<Record<PublicBreakdown, Array<{ name: string; count: number }>>>;
+  } & Partial<
+    Record<
+      PublicBreakdown,
+      Array<{ name: string; count: number; visitors: number }>
+    >
+  >;
 };

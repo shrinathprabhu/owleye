@@ -165,10 +165,11 @@ async function copy(url: string) {
             the selected metrics</label
           >
           <fieldset>
-            <legend>Breakdowns · page-view counts</legend>
+            <legend>Breakdowns · page views and unique visitors</legend>
             <p class="sharing-note">
-              Only groups with at least 5 visitors appear. Raw events, page
-              paths, referrers, campaign names, and AI stay private.
+              Selected breakdowns include all traffic, with page-view and
+              unique-visitor counts, just like Console. Raw events, page paths,
+              referrers, campaign names, and AI stay private.
             </p>
             <div class="sharing-options">
               <label

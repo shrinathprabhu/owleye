@@ -171,7 +171,7 @@ async function copy(url: string) {
             <legend>Breakdowns · page-view counts</legend>
             <p class="sharing-note">
               Only groups with at least 5 visitors appear. Raw events, page
-              paths, referrers, campaign names, AI, and Uptime stay private.
+              paths, referrers, campaign names, and AI stay private.
             </p>
             <div class="sharing-options">
               <label

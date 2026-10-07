@@ -174,52 +174,80 @@ function getColorScheme(): "dark" | "light" | undefined {
     : "light";
 }
 
+// Shared aliases for explicit UA tokens and low-entropy client-hint brands.
+const browserNames: Record<string, string> = {
+  arc: "Arc",
+  arcmobile2: "Arc",
+  "arc search": "Arc",
+  comet: "Comet",
+  "perplexity comet": "Comet",
+  dia: "Dia",
+  zen: "Zen",
+  floorp: "Floorp",
+  brave: "Brave",
+  vivaldi: "Vivaldi",
+  samsung: "Samsung Internet",
+  "samsung internet": "Samsung Internet",
+  headlesschrome: "Headless Chrome",
+  headlessedge: "Headless Edge",
+  uc: "UC Browser",
+  ucbrowser: "UC Browser",
+  ucweb: "UC Browser",
+  edge: "Edge",
+  "microsoft edge": "Edge",
+  opera: "Opera",
+};
+
+function browserName(value: string): string | undefined {
+  const key = value.toLowerCase().replace(/ browser$/, "");
+  const name = browserNames[key];
+  return typeof name === "string" ? name : undefined;
+}
+
 function detectBrowser(): Pick<OwlEnvironment, "browser" | "browser_version"> {
   const nav = navigator as Navigator & {
     brave?: { isBrave?: () => Promise<boolean> };
-    userAgentData?: {
-      brands?: Array<{ brand: string; version: string }>;
-    };
+    userAgentData?: { brands?: Array<{ brand: string; version: string }> };
   };
+  const userAgent = nav.userAgent;
+  // Explicit fork/headless tokens must survive generic engine hints.
+  const product = userAgent.match(
+    /(?:^|[\s;(])(HeadlessChrome|HeadlessEdge|ArcMobile2|Arc|Comet|Dia|Zen|Floorp|Brave|Vivaldi|UCBrowser|UCWEB)\/([\d.]+)/i,
+  );
+  if (product) return boundedBrowser(browserName(product[1]!)!, product[2]);
 
   const brands = nav.userAgentData?.brands ?? [];
-  const braveBrand = brands.find((brand) => /brave/i.test(brand.brand));
-  if (braveBrand) {
-    return boundedBrowser("Brave", braveBrand.version);
+  for (const { brand, version } of brands) {
+    const name = browserName(brand);
+    if (name) return boundedBrowser(name, version);
   }
-
-  const chromiumBrand = brands.find((brand) =>
-    /chromium|chrome/i.test(brand.brand),
-  );
-  const firefoxBrand = brands.find((brand) => /firefox/i.test(brand.brand));
-  const safariBrand = brands.find((brand) => /safari/i.test(brand.brand));
-
   if (typeof nav.brave?.isBrave === "function") {
-    return boundedBrowser("Brave", chromiumBrand?.version);
+    return boundedBrowser("Brave", undefined);
   }
+  const versionless = userAgent.match(
+    /(?:^|[\s;(])(ArcMobile2|Brave)(?:[;\s)]|$)/i,
+  );
+  if (versionless)
+    return boundedBrowser(browserName(versionless[1]!)!, undefined);
 
-  if (firefoxBrand)
-    return boundedBrowser(firefoxBrand.brand, firefoxBrand.version);
-  if (safariBrand)
-    return boundedBrowser(safariBrand.brand, safariBrand.version);
-  if (chromiumBrand)
-    return boundedBrowser(chromiumBrand.brand, chromiumBrand.version);
-
-  const userAgent = navigator.userAgent;
   const matchers: Array<[string, RegExp]> = [
+    ["Edge", /(?:EdgA|EdgiOS|Edg|Edge)\/([\d.]+)/],
+    ["Opera", /(?:OPR|OPiOS|Opera)\/([\d.]+)/],
+    ["Samsung Internet", /SamsungBrowser\/([\d.]+)/],
     ["Waterfox", /Waterfox\/([\d.]+)/],
-    ["Floorp", /Floorp\/([\d.]+)/],
-    ["Firefox", /Firefox\/([\d.]+)/],
-    ["Edg", /Edg\/([\d.]+)/],
-    ["Chrome", /Chrome\/([\d.]+)/],
+    ["Firefox", /(?:Firefox|FxiOS)\/([\d.]+)/],
+    ["Chrome", /(?:Chrome|CriOS|Chromium)\/([\d.]+)/],
     ["Safari", /Version\/([\d.]+).*Safari/],
   ];
-
   for (const [name, pattern] of matchers) {
     const match = userAgent.match(pattern);
     if (match?.[1]) return boundedBrowser(name, match[1]);
   }
-
+  for (const { brand, version } of brands) {
+    if (/^(Google Chrome|Chromium)$/i.test(brand))
+      return boundedBrowser("Chrome", version);
+    if (/^Firefox$/i.test(brand)) return boundedBrowser("Firefox", version);
+  }
   return {};
 }
 

@@ -359,7 +359,10 @@ function isAbortError(error: unknown) {
       <span v-else class="geo-note">{{ metricLabel }} · darker means more</span>
     </div>
 
-    <div class="chart-frame geo-chart-frame">
+    <div
+      class="chart-frame geo-chart-frame"
+      :style="view === 'bars' ? { minHeight: '180px' } : undefined"
+    >
       <div v-if="loading && !hasCountries" class="chart-state" role="status">
         <span class="state-orbit" aria-hidden="true"></span>
         <strong>Loading country traffic</strong>
@@ -391,6 +394,14 @@ function isAbortError(error: unknown) {
         v-else
         ref="chartEl"
         class="chart-surface geo-chart-surface"
+        :style="
+          view === 'bars'
+            ? {
+                height: `${Math.max(180, Math.min(520, countryData.length * 44 + 80))}px`,
+                minHeight: '180px',
+              }
+            : undefined
+        "
         :class="{ 'geo-chart-hidden': view === 'globe' }"
         role="img"
         :aria-busy="loading"
@@ -462,6 +473,13 @@ function isAbortError(error: unknown) {
   </div>
 </template>
 <style scoped>
+.geo-chart-shell {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.geo-chart-shell > * {
+  min-width: 0;
+}
 .geo-chart-frame {
   position: relative;
 }

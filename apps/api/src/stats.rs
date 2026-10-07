@@ -352,7 +352,7 @@ impl LiveStatsQueries {
         Self {
             browsers: dimension_query(
                 filter,
-                "if(browser_name = '', 'Unknown', browser_name)",
+                &crate::privacy::user_agent::browser_sql("browser_name"),
             ),
             countries: countries_query(filter),
             devices: dimension_query(
@@ -362,11 +362,11 @@ impl LiveStatsQueries {
             event_names: event_names_query(filter),
             operating_systems: dimension_query(
                 filter,
-                "multiIf(lowerUTF8(os_name) IN ('mac os x', 'macos', 'mac os', 'os x'), 'macOS', os_name = '', 'Unknown', os_name)",
+                "multiIf(lowerUTF8(os_name) IN ('mac os x', 'mac osx', 'macos', 'mac os', 'os x'), 'macOS', os_name = '', 'Unknown', os_name)",
             ),
             referrers: dimension_query(
                 filter,
-                "if(referrer_host = '', 'Direct', referrer_host)",
+                &crate::privacy::referrer::referrer_sql("referrer_host"),
             ),
             region_timeseries: region_timeseries_query(filter),
             regions: dimension_query(filter, REGION_NAME_SQL),
@@ -385,11 +385,11 @@ fn totals_query(filter: &str) -> String {
     format!(
         r#"
         SELECT
-            toUInt64(countIf(event_type != 'performance')) AS events,
+            toUInt64(countIf(event_type NOT IN ('performance', 'page_session'))) AS events,
             toUInt64(countIf(event_type = 'pageview')) AS pageviews,
             toUInt64(uniqCombined64(visitor_id)) AS visitors,
             toUInt64(uniqCombined64If(visitor_id, event_type = 'pageview')) AS pageview_visitors,
-            toUInt64(uniqCombined64(anon_session_id)) AS sessions,
+            toUInt64(uniqCombined64If(anon_session_id, event_type = 'pageview')) AS sessions,
             toUInt64(countIf(event_type = 'external')) AS external_events,
             toUInt64(countIf(event_type = 'rule')) AS rule_events,
             toUInt64(countIf(event_type = 'performance')) AS performance_events,
@@ -405,7 +405,7 @@ fn timeseries_query(filter: &str, bucket: &str) -> String {
         r#"
         SELECT
             toString({bucket}) AS date,
-            toUInt64(countIf(event_type != 'performance')) AS events,
+            toUInt64(countIf(event_type NOT IN ('performance', 'page_session'))) AS events,
             toUInt64(countIf(event_type = 'pageview')) AS pageviews,
             toUInt64(uniqCombined64(visitor_id)) AS visitors
         FROM owleye_events
@@ -495,7 +495,7 @@ fn event_names_query(filter: &str) -> String {
             event_name,
             toUInt64(count()) AS count
         FROM owleye_events
-        WHERE {filter} AND event_type != 'performance'
+        WHERE {filter} AND event_type NOT IN ('performance', 'page_session')
         GROUP BY event_type, event_name
         ORDER BY count DESC, event_type ASC, event_name ASC
         LIMIT 20
@@ -898,8 +898,8 @@ pub(crate) async fn public_overview(
             let expression = match metric {
                 Metric::Visitors => "uniqCombined64(visitor_id)",
                 Metric::Pageviews => "countIf(event_type = 'pageview')",
-                Metric::Events => "countIf(event_type != 'performance')",
-                Metric::Sessions => "uniqCombined64(anon_session_id)",
+                Metric::Events => "countIf(event_type NOT IN ('performance', 'page_session'))",
+                Metric::Sessions => "uniqCombined64If(anon_session_id, event_type = 'pageview')",
             };
             format!("toUInt64({expression}) AS {}", metric.key())
         })
@@ -951,7 +951,7 @@ pub(crate) async fn public_overview(
     for dimension in &config.breakdowns {
         let expression = match dimension {
             Breakdown::Countries => "if(country = '', 'Unknown', country)",
-            Breakdown::Browsers => "if(browser_name = '', 'Unknown', browser_name)",
+            Breakdown::Browsers => &crate::privacy::user_agent::browser_sql("browser_name"),
             Breakdown::Devices => "multiIf(lowerUTF8(device_type) = 'desktop', 'Desktop', lowerUTF8(device_type) = 'mobile', 'Mobile', lowerUTF8(device_type) = 'tablet', 'Tablet', 'Unknown')",
             Breakdown::OperatingSystems => "multiIf(lowerUTF8(os_name) IN ('mac os x', 'mac osx', 'macos', 'mac os', 'os x'), 'Mac', os_name = '', 'Unknown', os_name)",
         };
@@ -1284,7 +1284,9 @@ mod tests {
         assert!(!queries.region_timeseries.contains("LIMIT 5 BY date"));
         assert!(queries.top_pages.contains("argMax(page_title"));
         assert!(queries.totals.contains("uniqCombined64(visitor_id)"));
-        assert!(queries.totals.contains("uniqCombined64(anon_session_id)"));
+        assert!(queries
+            .totals
+            .contains("uniqCombined64If(anon_session_id, event_type = 'pageview')"));
         assert!(queries.utm_campaigns.contains("utm_campaign"));
         assert!(queries.utm_campaigns.contains("event_type = 'pageview'"));
         assert!(queries.totals.contains(ACTIVE_ROW_PREDICATE));

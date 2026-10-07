@@ -64,7 +64,7 @@ const typeOptions: ConsoleSelectOption[] = [
   { label: "Page views", value: "pageview" },
   { label: "Custom events", value: "external" },
   { label: "Tracking rules", value: "rule" },
-  { label: "Session", value: "page_session" },
+  { label: "Visible page segment", value: "page_session" },
 ];
 const sortOptions: ConsoleSelectOption[] = [
   { label: "Most events", value: "count:desc" },

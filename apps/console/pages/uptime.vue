@@ -1,18 +1,6 @@
 <script setup lang="ts">
-useHead({ title: "Uptime · OWLEYE" });
+// Preserve bookmarked URLs while the feature is unavailable.
+await navigateTo("/", { replace: true, redirectCode: 302 });
 </script>
 
-<template>
-  <ConsoleSectionShell
-    title="Uptime"
-    eyebrow="A watchful eye, every five minutes"
-    description="Know when your public website or API stops responding, and when it comes back."
-    v-slot="{ demo, site, permissions }"
-  >
-    <UptimeManager
-      :site-id="site?.id"
-      :demo="demo"
-      :can-manage="permissions.rules_write"
-    />
-  </ConsoleSectionShell>
-</template>
+<template><div /></template>

@@ -37,7 +37,7 @@ async function copyTrackingSnippet() {
 <template>
   <div class="tracking-identity">
     <span>
-      Tracking ID:
+      Public tracking ID:
       <code :title="siteId">{{ siteId }}</code>
       <CopyTrackingId :value="siteId" />
     </span>

@@ -14,6 +14,9 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 pub(crate) use worker::run;
 
+// Product switch: keep monitoring dormant, including previously configured monitors.
+pub(crate) const ENABLED: bool = false;
+
 pub(crate) const HISTORY_DAYS: i64 = 3;
 pub(crate) const HISTORY_CHECK_LIMIT: i64 = HISTORY_DAYS * 24 * 12;
 
@@ -76,7 +79,11 @@ pub(crate) struct UpdateMonitor {
 }
 
 pub(crate) fn allowance(_plan: ()) -> i64 {
-    i64::MAX
+    if ENABLED {
+        i64::MAX
+    } else {
+        0
+    }
 }
 async fn access(
     state: &AppState,
@@ -85,6 +92,11 @@ async fn access(
     manage: bool,
 ) -> Result<sites::ActiveSite, ApiError> {
     let session = auth::authenticated_session(state, headers).await?;
+    if !ENABLED {
+        return Err(ApiError::Forbidden(
+            "Uptime monitoring is currently unavailable".into(),
+        ));
+    }
     auth::reject_demo_workspace_mutation(&session.id)?;
     let site = if manage {
         sites::resolve_site_for_admin(&state.sqlite, &session.id, identifier).await?

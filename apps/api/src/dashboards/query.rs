@@ -59,8 +59,10 @@ pub(super) fn category_query(
     current: &FunnelPeriodRange,
     previous: Option<&FunnelPeriodRange>,
 ) -> String {
+    let browser = crate::privacy::user_agent::browser_sql("browser_name");
+    let referrer = crate::privacy::referrer::referrer_sql("referrer_host");
     let expression = match breakdown {
-        "browser" => "if(browser_name = '', 'Unknown browser', browser_name)",
+        "browser" => browser.as_str(),
         "country" => "if(country = '', 'Unknown country', country)",
         "os" => "if(os_name = '', 'Unknown OS', os_name)",
         "city" => "if(city = '', 'Unknown city', concat(city, ' (', if(country = '', 'Unknown country', country), ')'))",
@@ -68,7 +70,7 @@ pub(super) fn category_query(
         "campaign" => "if(utm_campaign = '', 'No campaign', utm_campaign)",
         "source" => "if(utm_source = '', 'No source', utm_source)",
         "medium" => "if(utm_medium = '', 'No medium', utm_medium)",
-        "referrer" => "if(referrer_host = '', 'Direct', referrer_host)",
+        "referrer" => referrer.as_str(),
         "page" => "if(url_path = '', '/', url_path)",
         _ => unreachable!("validated categorical breakdown"),
     };
@@ -297,7 +299,12 @@ fn property_group_sql(group: &FunnelPropertyGroup, prefix: &str) -> String {
         .iter()
         .map(|filter| {
             let column = property_column_sql(&filter.key, prefix);
-            let value = clickhouse_string(filter.value.as_deref().unwrap_or_default());
+            let raw = filter.value.as_deref().unwrap_or_default();
+            let normalized = (filter.key == "browser"
+                && matches!(filter.operator.as_str(), "equals" | "not_equals"))
+            .then(|| crate::privacy::user_agent::canonical_browser(raw))
+            .flatten();
+            let value = clickhouse_string(normalized.as_deref().unwrap_or(raw));
             match filter.operator.as_str() {
                 "contains" => format!("positionCaseInsensitiveUTF8({column}, {value}) > 0"),
                 "exists" => format!("{column} != ''"),
@@ -310,6 +317,12 @@ fn property_group_sql(group: &FunnelPropertyGroup, prefix: &str) -> String {
 }
 
 fn property_column_sql(key: &str, prefix: &str) -> String {
+    if key == "browser" {
+        return format!(
+            "if({prefix}browser_name = '', '', {})",
+            crate::privacy::user_agent::browser_sql(&format!("{prefix}browser_name"))
+        );
+    }
     let column = match key {
         "campaign" | "utm_campaign" => Some("utm_campaign"),
         "source" | "utm_source" => Some("utm_source"),

@@ -455,7 +455,7 @@ async fn load_managed_sites(
         let mut site = row.into_site();
         site.entitlements = Some(SiteEntitlements {
             ai: true,
-            uptime: true,
+            uptime: crate::uptime::ENABLED,
         });
         result.push(site);
     }

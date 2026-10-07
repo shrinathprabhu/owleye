@@ -2957,3 +2957,134 @@ test("full CDN payload respects GPC, mock mode, and the documented page-only aut
   browser.window.OwlEyeRules.stop();
   browser.window.OwlEyePerformance.observeVitals().stop();
 });
+
+test("browser hints use a canonical family and specific UA tokens beat Chromium", async () => {
+  const cases = [
+    {
+      brands: [
+        { brand: "Chromium", version: "130" },
+        { brand: "Google Chrome", version: "130" },
+      ],
+      ua: "Mozilla/5.0 Chrome/130.0.0.0",
+      expected: "Chrome",
+    },
+    {
+      brands: [
+        { brand: "Google Chrome", version: "130" },
+        { brand: "Chromium", version: "130" },
+      ],
+      ua: "Mozilla/5.0 Chrome/130.0.0.0",
+      expected: "Chrome",
+    },
+    {
+      brands: [
+        { brand: "Chromium", version: "130" },
+        { brand: "Microsoft Edge", version: "130" },
+      ],
+      ua: "Mozilla/5.0 Chrome/130.0.0.0 Edg/130.0.0.0",
+      expected: "Edge",
+    },
+    {
+      brands: [{ brand: "Chromium", version: "130" }],
+      ua: "Mozilla/5.0 Chrome/130.0.0.0 OPR/115.0.0.0",
+      expected: "Opera",
+    },
+    {
+      brands: [],
+      ua: "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 CriOS/130.0.0.0 Mobile/15E148 Safari/604.1",
+      expected: "Chrome",
+    },
+    {
+      brands: [],
+      ua: "Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 FxiOS/130.0 Mobile/15E148 Safari/604.1",
+      expected: "Firefox",
+    },
+  ];
+  for (const [index, scenario] of cases.entries()) {
+    installBrowser("https://app.example/");
+    navigator.userAgentData = { brands: scenario.brands };
+    navigator.userAgent = scenario.ua;
+    const requests = captureRequests();
+    const { useAnalytics } = await analyticsModule;
+    const analytics = useAnalytics(`browser_case_${index}`, {
+      server: "https://app.example",
+    });
+    await flush();
+    const view = requestEvents(requests.calls).find(
+      (event) => event.type === "pageview",
+    );
+    assert.equal(view.environment.browser, scenario.expected);
+    analytics.stop();
+  }
+});
+
+// Token fixtures include explicit/custom identities; they do not claim every
+// shipping browser exposes its own brand (many intentionally expose Chrome/Firefox).
+test("modern browser UA identities survive generic engine hints", async () => {
+  const fixtures = JSON.parse(
+    readFileSync(new URL("./browser-fixtures.json", import.meta.url), "utf8"),
+  );
+  for (const [index, fixture] of fixtures.entries()) {
+    installBrowser("https://app.example/");
+    navigator.userAgent = fixture.ua;
+    navigator.userAgentData = {
+      brands: [{ brand: "Chromium", version: "130" }],
+    };
+    const requests = captureRequests();
+    const { useAnalytics } = await analyticsModule;
+    const analytics = useAnalytics(`modern_browser_${index}`, {
+      server: "https://app.example",
+    });
+    await flush();
+    const view = requestEvents(requests.calls).find(
+      (e) => e.type === "pageview",
+    );
+    assert.equal(view.environment.browser, fixture.name, fixture.ua);
+    assert.equal(
+      view.environment.browser_version ?? null,
+      fixture.version,
+      fixture.ua,
+    );
+    analytics.stop();
+  }
+});
+
+test("explicit modern browser brands beat Chrome in any hint order", async () => {
+  for (const [alias, expected] of [
+    ["Arc Browser", "Arc"],
+    ["Comet", "Comet"],
+    ["Dia Browser", "Dia"],
+    ["Zen Browser", "Zen"],
+    ["Floorp", "Floorp"],
+    ["Brave", "Brave"],
+    ["Samsung Browser", "Samsung Internet"],
+    ["UC Browser", "UC Browser"],
+    ["Vivaldi", "Vivaldi"],
+    ["Microsoft Edge", "Edge"],
+    ["Opera", "Opera"],
+    ["HeadlessChrome", "Headless Chrome"],
+  ]) {
+    for (const reverse of [false, true]) {
+      installBrowser("https://app.example/");
+      navigator.userAgent = "Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36";
+      const brands = [
+        { brand: "Not A;Brand", version: "99" },
+        { brand: "Google Chrome", version: "130" },
+        { brand: alias, version: "12" },
+      ];
+      navigator.userAgentData = { brands: reverse ? brands.reverse() : brands };
+      const requests = captureRequests();
+      const { useAnalytics } = await analyticsModule;
+      const analytics = useAnalytics("modern_hint", {
+        server: "https://app.example",
+      });
+      await flush();
+      const view = requestEvents(requests.calls).find(
+        (e) => e.type === "pageview",
+      );
+      assert.equal(view.environment.browser, expected, alias);
+      assert.equal(view.environment.browser_version, "12", alias);
+      analytics.stop();
+    }
+  }
+});

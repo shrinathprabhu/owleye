@@ -172,6 +172,7 @@ fn live_sql(site: &str, event: Option<&str>, now: DateTime<Utc>) -> String {
     let start = datetime(now - ChronoDuration::minutes(30));
     let end = datetime(now);
     let active = datetime(now - ChronoDuration::minutes(5));
+    let referrer = crate::privacy::referrer::referrer_sql("referrer_host");
     let selected = event
         .map(|event| format!("event_name = {}", clickhouse_string(event)))
         .unwrap_or_else(|| "0".into());
@@ -185,9 +186,9 @@ fn live_sql(site: &str, event: Option<&str>, now: DateTime<Utc>) -> String {
     FROM owleye_events
     ARRAY JOIN [('summary',''),('minute',toString(intDiv(dateDiff('millisecond', {start}, occurred_at),60000))),
       ('pages',if(url_path='','/',url_path)), ('countries',if(country='','Unknown country',country)),
-      ('campaigns',if(utm_campaign='','No campaign',utm_campaign)), ('referrers',if(referrer_host='','Direct',referrer_host)),
+      ('campaigns',if(utm_campaign='','No campaign',utm_campaign)), ('referrers',{referrer}),
       ('events',if(event_name='',event_type,event_name))] AS bucket
-    WHERE site_id = {} AND occurred_at >= {start} AND occurred_at < {end} AND event_type != 'performance' AND {ACTIVE_ROW_PREDICATE}
+    WHERE site_id = {} AND occurred_at >= {start} AND occurred_at < {end} AND event_type NOT IN ('performance', 'page_session') AND {ACTIVE_ROW_PREDICATE}
     GROUP BY bucket ORDER BY kind, events DESC, label LIMIT 30 BY kind
     SETTINGS max_execution_time=5, max_threads=2, output_format_json_quote_64bit_integers=0"#,
         clickhouse_string(site)

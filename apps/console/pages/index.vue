@@ -367,12 +367,12 @@ function metric(value: number | undefined, suffix = "") {
             {{
               statsPending && stats
                 ? rangeMetricCaption
-                : "Anonymous, deduplicated"
+                : "Estimated, deduplicated"
             }}
           </small>
         </article>
         <article>
-          <span>Total events tracked</span>
+          <span>Tracked events</span>
           <strong :class="{ skeleton: statsPending && !stats }">{{
             metric(stats?.totals.events)
           }}</strong>
@@ -429,7 +429,10 @@ function metric(value: number | undefined, suffix = "") {
           </div>
           <div class="stat-list">
             <div>
-              <span>Sessions</span>
+              <span
+                title="Estimated visitor and fixed 30-minute buckets containing a page view. Duration-only and custom-only activity does not add visits."
+                >Estimated sessions</span
+              >
               <strong :class="{ skeleton: statsPending && !stats }">{{
                 metric(stats?.totals.sessions)
               }}</strong>
@@ -452,7 +455,9 @@ function metric(value: number | undefined, suffix = "") {
                 >Avg. visible segment</span
               >
               <strong :class="{ skeleton: statsPending && !stats }">{{
-                metric(stats?.totals.avg_duration_ms, " ms")
+                stats
+                  ? `${(stats.totals.avg_duration_ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} s`
+                  : "—"
               }}</strong>
             </div>
           </div>
@@ -530,7 +535,7 @@ function metric(value: number | undefined, suffix = "") {
             {{
               breakdownMetric === "visitors"
                 ? "Visitors with a page view, deduplicated across this range. A visitor can appear in multiple categories; the center total counts them once."
-                : "Page views only. Custom, rule, session, and performance events are excluded."
+                : "Page views only. Custom, rule, duration, and performance events are excluded."
             }}
             The metric selection also applies to geography and acquisition.
           </p>
@@ -649,7 +654,11 @@ function metric(value: number | undefined, suffix = "") {
           <div class="panel-header">
             <div>
               <p class="panel-kicker">Signals</p>
-              <h2>Events</h2>
+              <h2>Tracked events</h2>
+              <p class="breakdown-note">
+                Page views and custom or rule actions. Visible-page segments and
+                performance measurements are excluded.
+              </p>
             </div>
           </div>
           <div v-if="statsPending" class="list-skeleton" role="status">
@@ -657,12 +666,13 @@ function metric(value: number | undefined, suffix = "") {
           </div>
           <div v-else-if="stats?.event_names.length" class="rank-list">
             <div
-              v-for="event in stats.event_names.filter(item => item.event_type !== 'performance')"
+              v-for="event in stats.event_names.filter(
+                (item) =>
+                  !['performance', 'page_session'].includes(item.event_type),
+              )"
               :key="`${event.event_type}:${event.event_name}`"
             >
-              <span
-                >{{ eventLabel(event.event_type, event.event_name) }}</span
-              >
+              <span>{{ eventLabel(event.event_type, event.event_name) }}</span>
               <strong>{{ formatNumber(event.count) }}</strong>
             </div>
           </div>

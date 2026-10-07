@@ -101,7 +101,10 @@ impl GroupBy {
         }
     }
 
-    fn expression(self) -> &'static str {
+    fn expression(self) -> String {
+        if matches!(self, Self::Browser) {
+            return crate::privacy::user_agent::browser_sql("browser_name");
+        }
         match self {
             Self::Browser => "if(browser_name = '', 'Unknown', browser_name)",
             Self::Country => "if(country = '', 'Unknown', country)",
@@ -112,6 +115,7 @@ impl GroupBy {
             Self::OperatingSystem => "if(os_name = '', 'Unknown', os_name)",
             Self::Page => "if(url_path = '', '/', url_path)",
         }
+        .to_owned()
     }
 }
 

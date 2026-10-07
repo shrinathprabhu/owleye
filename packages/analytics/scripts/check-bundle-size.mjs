@@ -38,14 +38,15 @@ async function consumerBundle(source) {
 // Includes the shared-instance registry and bounded delivery lifecycle,
 // fail-safe API boundaries, and bounded diagnostics.
 // Includes routing controls, configuration conflict checks and bounded acknowledgement diagnostics.
+// Explicit modern-browser brands/tokens add up to 100 gzip bytes to affected budgets.
 // Standalone CDN budgets include 800 bytes of gzip allowance for the full MIT notice.
 const budgets = new Map([
   ["dist/owleye.full.iife.js", 13_100],
   ["dist/index.js", 1_600],
   ["dist/rules.js", 6_500],
-  ["dist/owleye.analytics.iife.js", 7_400],
-  ["dist/owleye.rules.iife.js", 11_200],
-  ["dist/owleye.performance.iife.js", 7_000],
+  ["dist/owleye.analytics.iife.js", 7_500],
+  ["dist/owleye.rules.iife.js", 11_300],
+  ["dist/owleye.performance.iife.js", 7_100],
 ]);
 
 const formatBytes = (bytes) => `${(bytes / 1_024).toFixed(2)} KiB`;
@@ -58,8 +59,8 @@ const measurements = await Promise.all(
 );
 
 for (const [name, symbol, budget] of [
-  ["@owleye/analytics", "useAnalytics", 7_000],
-  ["@owleye/analytics/rules", "trackRules", 11_100],
+  ["@owleye/analytics", "useAnalytics", 7_100],
+  ["@owleye/analytics/rules", "trackRules", 11_200],
   ["@owleye/analytics/performance", "trackPerf", 6_700],
 ]) {
   const code = await consumerBundle(`export * from "${name}";`);

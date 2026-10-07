@@ -117,7 +117,10 @@ function sendEnvelope(
       5_000,
     );
     // No queue, persistence, or retry storm: drop excess work instead of slowing
-    // the host application. The shared byte budget stays below keepalive limits.
+    // the host application. This budget covers OwlEye only; host-page requests
+    // share the browser's keepalive quota. Beacon cannot omit credentials and a
+    // JSON Blob requires credentialed CORS, unlike this public SDK endpoint.
+    // Keep fetch: https://www.w3.org/TR/beacon/#sec-processing-model
     try {
       diagnose("request submitted; acceptance not yet confirmed");
       void fetch(buildUrl(config, "/v1/events"), {

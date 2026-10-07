@@ -16,8 +16,9 @@ use crate::{models::clickhouse_string, ApiError, EventRow};
 
 const EVENTS_TABLE: &str = "owleye_events";
 const PERFORMANCE_TABLE: &str = "owleye_performance";
-const INSERT_BATCH_MAX_ROWS: usize = 1_000;
-const INSERT_BATCH_INTERVAL: Duration = Duration::from_millis(100);
+// Coalesce across HTTP requests to reduce MergeTree part creation.
+const INSERT_BATCH_MAX_ROWS: usize = 5_000;
+const INSERT_BATCH_INTERVAL: Duration = Duration::from_secs(1);
 const INSERT_QUEUE_CAPACITY: usize = 512;
 const CLICKHOUSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 // Bound request waiting; the queued batch retains its erasure fence until settled.
@@ -662,13 +663,19 @@ struct PendingInsert {
 }
 
 impl ClickHouseWriter {
-    async fn run(self, mut receiver: mpsc::Receiver<InsertCommand>) {
+    async fn run(self, receiver: mpsc::Receiver<InsertCommand>) {
+        self.run_with_interval(receiver, INSERT_BATCH_INTERVAL)
+            .await;
+    }
+
+    async fn run_with_interval(
+        self,
+        mut receiver: mpsc::Receiver<InsertCommand>,
+        flush_interval: Duration,
+    ) {
         let mut pending = Vec::new();
         let mut pending_rows = 0usize;
-        let mut interval = time::interval_at(
-            time::Instant::now() + INSERT_BATCH_INTERVAL,
-            INSERT_BATCH_INTERVAL,
-        );
+        let mut interval = time::interval_at(time::Instant::now() + flush_interval, flush_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
@@ -676,6 +683,11 @@ impl ClickHouseWriter {
                 command = receiver.recv() => {
                     match command {
                         Some(InsertCommand::Batch(batch)) => {
+                            if pending.is_empty() {
+                                // Start the window at the first event, including after
+                                // idle periods or a slow insert/retry cycle.
+                                interval.reset();
+                            }
                             pending_rows += batch.rows.len();
                             pending.push(batch);
                             if pending_rows >= INSERT_BATCH_MAX_ROWS {
@@ -920,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn build_insert_body_uses_async_insert_and_multiple_json_rows() {
+    fn build_insert_body_uses_synchronous_insert_and_multiple_json_rows() {
         let rows = vec![event_row("one"), event_row("two")];
         let body = build_insert_body(&rows).unwrap();
         let first_row: serde_json::Value =
@@ -1166,7 +1178,7 @@ mod tests {
         ch.shutdown().await;
     }
 
-    fn event_row(event_id: &str) -> EventRow {
+    pub(super) fn event_row(event_id: &str) -> EventRow {
         EventRow {
             anon_session_id: "session".to_owned(),
             anon_user_id: "user".to_owned(),

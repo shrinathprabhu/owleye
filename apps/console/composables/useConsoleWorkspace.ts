@@ -129,7 +129,7 @@ export function useConsoleWorkspace() {
               : "Admin",
         description: site.domain,
         label: site.name,
-        meta: `Tracking ID · ${site.tracking_id}`,
+        meta: `Public tracking ID · ${site.tracking_id}`,
         value: site.tracking_id,
       };
     }),

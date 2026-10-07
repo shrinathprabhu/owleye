@@ -237,17 +237,16 @@ impl EventRow {
         let viewport_height = environment.viewport.as_ref().and_then(|size| size.height);
         let utm = utm_attribution(page.search.as_deref());
 
+        let (browser_name, browser_version) = crate::privacy::user_agent::resolve_browser(
+            &user_agent,
+            environment.browser.as_deref(),
+            environment.browser_version.as_deref(),
+        );
         Ok(Self {
             anon_session_id: anonymous_ids.session_id,
             anon_user_id: anonymous_ids.user_id,
-            browser_name: environment
-                .browser
-                .or(user_agent.browser_name)
-                .unwrap_or_default(),
-            browser_version: environment
-                .browser_version
-                .or(user_agent.browser_version)
-                .unwrap_or_default(),
+            browser_name,
+            browser_version,
             city: location.city.unwrap_or_default(),
             color_scheme: environment.color_scheme.unwrap_or_default(),
             continent: location.continent.unwrap_or_default(),

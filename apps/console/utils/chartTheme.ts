@@ -76,7 +76,7 @@ export function chartZoom(pointCount: number, theme: ChartTheme) {
 
   return [
     {
-      filterMode: "none" as const,
+      filterMode: "filter" as const,
       minSpan: Math.min(100, Math.max(4, 200 / Math.max(pointCount, 2))),
       start,
       end: 100,
@@ -113,6 +113,7 @@ export function chartZoom(pointCount: number, theme: ChartTheme) {
       end: 100,
       rangeMode: ["percent", "percent"] as ["percent", "percent"],
       textStyle: { color: theme.text },
+      filterMode: "filter" as const,
       type: "slider" as const,
     },
   ];

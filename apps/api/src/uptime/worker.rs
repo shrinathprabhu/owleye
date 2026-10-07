@@ -12,6 +12,10 @@ use tokio::{sync::watch, task::JoinSet};
 use uuid::Uuid;
 
 pub(crate) async fn run(state: AppState, mut shutdown: watch::Receiver<bool>) {
+    if !super::ENABLED {
+        tracing::info!("Uptime monitoring is disabled; existing monitors will not be probed");
+        return;
+    }
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tasks = JoinSet::new();

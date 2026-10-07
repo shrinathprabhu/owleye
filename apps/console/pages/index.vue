@@ -419,77 +419,6 @@ function metric(value: number | undefined, suffix = "") {
           </div>
         </article>
 
-        <article class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Totals</p>
-              <h2>Summary</h2>
-            </div>
-            <span>{{ hasLoadedSite ? stats?.site_id : "No site loaded" }}</span>
-          </div>
-          <div class="stat-list">
-            <div>
-              <span
-                title="Estimated visitor and fixed 30-minute buckets containing a page view. Duration-only and custom-only activity does not add visits."
-                >Estimated sessions</span
-              >
-              <strong :class="{ skeleton: statsPending && !stats }">{{
-                metric(stats?.totals.sessions)
-              }}</strong>
-            </div>
-            <div>
-              <span>External events</span>
-              <strong :class="{ skeleton: statsPending && !stats }">{{
-                metric(stats?.totals.external_events)
-              }}</strong>
-            </div>
-            <div>
-              <span>Rule events</span>
-              <strong :class="{ skeleton: statsPending && !stats }">{{
-                metric(stats?.totals.rule_events)
-              }}</strong>
-            </div>
-            <div>
-              <span
-                title="Average visible page segment duration; switching tabs ends a segment. Not a visitor session."
-                >Avg. visible segment</span
-              >
-              <strong :class="{ skeleton: statsPending && !stats }">{{
-                stats
-                  ? `${(stats.totals.avg_duration_ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} s`
-                  : "—"
-              }}</strong>
-            </div>
-          </div>
-        </article>
-
-        <article class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Content</p>
-              <h2>Top pages</h2>
-            </div>
-          </div>
-          <div v-if="statsPending" class="list-skeleton" role="status">
-            <span>Loading top pages…</span>
-          </div>
-          <div v-else-if="stats?.top_pages.length" class="rank-list">
-            <div v-for="page in stats.top_pages" :key="page.path">
-              <span :title="page.title || page.path">{{ page.path }}</span>
-              <strong>{{ formatNumber(page.views) }}</strong>
-            </div>
-          </div>
-          <p v-else class="empty-state">
-            {{
-              stats
-                ? "No page views in this range."
-                : normalizedSiteId
-                  ? "Load this site to see its top pages."
-                  : "Select a site to see its top pages."
-            }}
-          </p>
-        </article>
-
         <article class="panel wide geo-panel">
           <div class="panel-header">
             <div>
@@ -584,6 +513,77 @@ function metric(value: number | undefined, suffix = "") {
               />
             </section>
           </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-kicker">Totals</p>
+              <h2>Summary</h2>
+            </div>
+            <span>{{ hasLoadedSite ? stats?.site_id : "No site loaded" }}</span>
+          </div>
+          <div class="stat-list">
+            <div>
+              <span
+                title="Estimated visitor and fixed 30-minute buckets containing a page view. Duration-only and custom-only activity does not add visits."
+                >Estimated sessions</span
+              >
+              <strong :class="{ skeleton: statsPending && !stats }">{{
+                metric(stats?.totals.sessions)
+              }}</strong>
+            </div>
+            <div>
+              <span>External events</span>
+              <strong :class="{ skeleton: statsPending && !stats }">{{
+                metric(stats?.totals.external_events)
+              }}</strong>
+            </div>
+            <div>
+              <span>Rule events</span>
+              <strong :class="{ skeleton: statsPending && !stats }">{{
+                metric(stats?.totals.rule_events)
+              }}</strong>
+            </div>
+            <div>
+              <span
+                title="Average visible page segment duration; switching tabs ends a segment. Not a visitor session."
+                >Avg. visible segment</span
+              >
+              <strong :class="{ skeleton: statsPending && !stats }">{{
+                stats
+                  ? `${(stats.totals.avg_duration_ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} s`
+                  : "—"
+              }}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-kicker">Content</p>
+              <h2>Top pages</h2>
+            </div>
+          </div>
+          <div v-if="statsPending" class="list-skeleton" role="status">
+            <span>Loading top pages…</span>
+          </div>
+          <div v-else-if="stats?.top_pages.length" class="rank-list">
+            <div v-for="page in stats.top_pages" :key="page.path">
+              <span :title="page.title || page.path">{{ page.path }}</span>
+              <strong>{{ formatNumber(page.views) }}</strong>
+            </div>
+          </div>
+          <p v-else class="empty-state">
+            {{
+              stats
+                ? "No page views in this range."
+                : normalizedSiteId
+                  ? "Load this site to see its top pages."
+                  : "Select a site to see its top pages."
+            }}
+          </p>
         </article>
 
         <article class="panel">

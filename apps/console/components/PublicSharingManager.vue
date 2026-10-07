@@ -22,18 +22,15 @@ const links = computed(() =>
     ? [
         {
           label: "App ID link",
-          url: `${base.value}/p?${new URLSearchParams({ site_id: settings.value.site_id })}`,
+          url: `${base.value}/share?${new URLSearchParams({ site_id: settings.value.site_id })}`,
         },
         ...settings.value.config.urls.map((url) => ({
           label: url,
-          url: `${base.value}/p?${new URLSearchParams({ site: url })}`,
+          url: `${base.value}/share?${new URLSearchParams({ site: url })}`,
         })),
       ]
     : [],
 );
-onMounted(() => {
-  if (location.hostname === "localhost") base.value = location.origin;
-});
 watch(() => props.siteId, load, { immediate: true });
 onBeforeUnmount(() => controller?.abort());
 async function load() {

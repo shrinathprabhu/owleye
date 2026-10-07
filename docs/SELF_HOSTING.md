@@ -92,6 +92,14 @@ If the first attempt saved configuration but failed during server startup, inspe
 
 If all administrator credentials are lost, run `./setup.sh --recover-admin` locally as the installation owner. It asks for an existing administrator email and a new password, revokes their sessions and authenticator setup, and never creates or promotes an account. This requires access to the private configuration and database. Sign in and reconfigure the authenticator afterward if desired.
 
+## Share an Overview
+
+In Console, select an app and open **Settings → Public Overview** as its owner. Enable sharing, choose the metrics, chart, breakdowns and maximum history, then publish and copy the generated link.
+
+Shared pages run in the same Console app on your server, for example `https://analytics.example.com/share?site_id=<app UUID>`. Optional URL links also use `/share`, with a URL-encoded `site` parameter. Existing `/p` links still work. No OwlEye website deployment or separate frontend is required; the Rust server serves the Console and `/v1/public/overview` on the same origin.
+
+Viewers need no account. Sharing is off by default; only the selected aggregates are returned, and breakdowns require at least five visitors per group. Turning sharing off revokes both link formats for subsequent requests. The page is marked `noindex, nofollow`. Your Console domain must be reachable by viewers; if a reverse proxy requires login for the entire domain, viewers must pass that proxy login too.
+
 ## Redeploy
 
 ```sh

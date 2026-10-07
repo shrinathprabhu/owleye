@@ -42,12 +42,15 @@ use([
 const props = withDefaults(
   defineProps<{
     countries?: DimensionStat[];
+    emptyMessage?: string;
     error?: string;
     loading?: boolean;
     metricLabel?: string;
   }>(),
   {
     countries: () => [],
+    emptyMessage:
+      "Country totals appear as page views with country data arrive.",
     error: "",
     loading: false,
     metricLabel: "Page views",
@@ -385,9 +388,7 @@ function isAbortError(error: unknown) {
       >
         <span class="state-symbol" aria-hidden="true">◎</span>
         <strong>No country traffic in this range</strong>
-        <span
-          >Country totals appear as page views with country data arrive.</span
-        >
+        <span>{{ emptyMessage }}</span>
       </div>
 
       <div

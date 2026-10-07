@@ -20,7 +20,11 @@ import {
   trafficPeriodLabel,
   type AnalyticsInterval,
 } from "~/utils/analyticsRange";
-import type { TrafficPoint } from "~/types/stats";
+import {
+  trafficMetricLabels,
+  type TrafficChartPoint,
+  type TrafficMetric,
+} from "~/utils/trafficMetrics";
 import {
   chartMotion,
   chartZoom,
@@ -52,7 +56,8 @@ const props = withDefaults(
     rangeKey?: string;
     error?: string;
     loading?: boolean;
-    points?: TrafficPoint[];
+    points?: TrafficChartPoint[];
+    metrics?: TrafficMetric[];
   }>(),
   {
     interval: "day",
@@ -60,6 +65,7 @@ const props = withDefaults(
     error: "",
     loading: false,
     points: () => [],
+    metrics: () => ["pageviews", "visitors", "events"],
   },
 );
 
@@ -80,7 +86,7 @@ const trafficByDate = computed(
 );
 const chartLabel = computed(
   () =>
-    `Traffic for ${periods.value.length} time periods. Page views, unique visitors, and tracked events are shown as three lines.`,
+    `Traffic for ${periods.value.length} time periods. ${props.metrics.map((metric) => trafficMetricLabels[metric]).join(", ")}.`,
 );
 
 const { clearChart, ensureChart, prefersReducedMotion } = useEChartLifecycle(
@@ -100,6 +106,7 @@ watch(
       props.loading,
       props.error,
       props.points,
+      props.metrics,
       props.rangeKey,
       props.interval,
     ] as const,
@@ -122,7 +129,7 @@ function renderChart() {
   const colors = readTrafficChartTheme(chartEl.value);
   const reduceMotion = prefersReducedMotion();
   const series = chartSeries(colors);
-  const range = `${props.rangeKey}:${props.interval}:${periods.value[0]}:${periods.value.at(-1)}`;
+  const range = `${props.rangeKey}:${props.interval}:${props.metrics.join(",")}:${periods.value[0]}:${periods.value.at(-1)}`;
   const rangeChanged = renderedRange !== range;
   const zoom = chartZoom(periods.value.length, colors).map((option) => {
     // Let a manual zoom survive refreshes within the same date range.
@@ -148,6 +155,10 @@ function renderChart() {
         top: 20,
       },
       legend: {
+        type: "scroll",
+        pageIconColor: colors.text,
+        pageIconInactiveColor: colors.axis,
+        pageTextStyle: { color: colors.text },
         bottom: 0,
         itemHeight: 8,
         itemWidth: 18,
@@ -228,68 +239,35 @@ function renderChart() {
 }
 
 function chartSeries(colors: ReturnType<typeof readTrafficChartTheme>) {
-  const dataFor = (metric: keyof Omit<TrafficPoint, "date">) =>
-    periods.value.map((date) => ({
-      name: date,
-      value: trafficByDate.value.get(date)?.[metric] ?? null,
-    }));
-  const shared = {
-    emphasis: { focus: "series" as const },
-    showSymbol: false,
-    smooth: 0.36,
-    smoothMonotone: "x" as const,
-    type: "line" as const,
-  };
-  return [
-    {
-      ...shared,
-      data: dataFor("pageviews"),
-      id: "traffic-pageviews",
-      itemStyle: { color: colors.traffic.pageviews },
+  return props.metrics.map((metric) => {
+    const color =
+      metric === "sessions" ? colors.series[3] : colors.traffic[metric];
+    return {
+      emphasis: { focus: "series" as const },
+      showSymbol: false,
+      smooth: 0.36,
+      smoothMonotone: "x" as const,
+      type: "line" as const,
+      data: periods.value.map((date) => ({
+        name: date,
+        value: trafficByDate.value.get(date)?.[metric] ?? null,
+      })),
+      id: `traffic-${metric}`,
+      itemStyle: { color },
       lineStyle: {
-        cap: "round",
-        color: colors.traffic.pageviews,
-        join: "round",
-        shadowBlur: 14,
-        shadowColor: colors.traffic.pageviews,
-        width: 3.25,
+        cap: "round" as const,
+        color,
+        join: "round" as const,
+        shadowBlur: metric === "pageviews" ? 14 : 10,
+        shadowColor: color,
+        width: metric === "pageviews" ? 3.25 : 2.75,
       },
-      name: "Page views",
-    },
-    {
-      ...shared,
-      data: dataFor("visitors"),
-      id: "traffic-visitors",
-      itemStyle: { color: colors.traffic.visitors },
-      lineStyle: {
-        cap: "round",
-        color: colors.traffic.visitors,
-        join: "round",
-        shadowBlur: 11,
-        shadowColor: colors.traffic.visitors,
-        width: 2.75,
-      },
-      name: "Unique visitors",
-    },
-    {
-      ...shared,
-      data: dataFor("events"),
-      id: "traffic-events",
-      itemStyle: { color: colors.traffic.events },
-      lineStyle: {
-        cap: "round",
-        color: colors.traffic.events,
-        join: "round",
-        shadowBlur: 10,
-        shadowColor: colors.traffic.events,
-        width: 2.75,
-      },
-      name: "Events",
-    },
-  ] satisfies LineSeriesOption[];
+      name: trafficMetricLabels[metric],
+    };
+  }) satisfies LineSeriesOption[];
 }
 
-function trafficValue(date: string, metric: keyof Omit<TrafficPoint, "date">) {
+function trafficValue(date: string, metric: TrafficMetric) {
   return trafficByDate.value.get(date)?.[metric] ?? "—";
 }
 </script>
@@ -341,17 +319,17 @@ function trafficValue(date: string, metric: keyof Omit<TrafficPoint, "date">) {
       <thead>
         <tr>
           <th scope="col">Period</th>
-          <th scope="col">Page views</th>
-          <th scope="col">Unique visitors</th>
-          <th scope="col">Events</th>
+          <th v-for="metric in metrics" :key="metric" scope="col">
+            {{ trafficMetricLabels[metric] }}
+          </th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="period in periods" :key="period">
           <th scope="row">{{ trafficPeriodLabel(period, interval) }}</th>
-          <td>{{ trafficValue(period, "pageviews") }}</td>
-          <td>{{ trafficValue(period, "visitors") }}</td>
-          <td>{{ trafficValue(period, "events") }}</td>
+          <td v-for="metric in metrics" :key="metric">
+            {{ trafficValue(period, metric) }}
+          </td>
         </tr>
       </tbody>
     </table>

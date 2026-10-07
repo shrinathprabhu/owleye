@@ -99,16 +99,98 @@ pub(crate) fn allowed_origin(origin: &str) -> bool {
     })
 }
 pub(crate) async fn require_origin(request: Request, next: Next) -> Result<Response, ApiError> {
-    let origin = request
+    // Browsers can omit Origin on same-origin GETs to this self-hosted API.
+    // This read-only endpoint is public; resolve() still enforces publishing
+    // and the selected aggregates. Validate Origin whenever it is supplied.
+    if request
         .headers()
         .get(header::ORIGIN)
-        .and_then(|v| v.to_str().ok());
-    if !origin.is_some_and(allowed_origin) {
+        .is_some_and(|origin| !origin.to_str().is_ok_and(allowed_origin))
+    {
         return Err(ApiError::Forbidden(
             "This origin cannot access public dashboards.".into(),
         ));
     }
     Ok(next.run(request).await)
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+    use axum::{body::Body, http::StatusCode, middleware, routing::get, Router};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn same_origin_reads_without_origin_reach_the_public_handler() {
+        let app = Router::new()
+            .route(
+                "/v1/public/overview",
+                get(|| async { StatusCode::NO_CONTENT }),
+            )
+            .layer(middleware::from_fn(require_origin));
+        for origin in [
+            None,
+            Some("https://analytics.example.com"),
+            Some("http://localhost:6173"),
+        ] {
+            let mut request = Request::builder().uri("/v1/public/overview?site_id=example");
+            if let Some(origin) = origin {
+                request = request.header(header::ORIGIN, origin);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_invalid_origins_are_still_rejected() {
+        let app = Router::new()
+            .route(
+                "/v1/public/overview",
+                get(|| async { StatusCode::NO_CONTENT }),
+            )
+            .layer(middleware::from_fn(require_origin));
+        for origin in [
+            "null",
+            "file://",
+            "https://analytics.example.com/path",
+            "invalid",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/v1/public/overview?site_id=example")
+                        .header(header::ORIGIN, origin)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_origin_does_not_override_disabled_sharing() {
+        let app = Router::new()
+            .route("/v1/public/overview", get(|| async { unavailable() }))
+            .layer(middleware::from_fn(require_origin));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/public/overview?site_id=disabled")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
 }
 
 fn normalize_url(value: &str) -> Result<String, ApiError> {

@@ -39,9 +39,6 @@ const metrics = computed(() =>
 const primaryMetrics = computed(() =>
   metrics.value.filter((metric) => metric !== "sessions"),
 );
-const secondaryMetrics = computed(() =>
-  metrics.value.filter((metric) => metric === "sessions"),
-);
 const emptyBreakdownMessage = "No page-view traffic in this range.";
 const audienceBreakdowns = computed(() =>
   (["browsers", "operating_systems", "devices"] as PublicBreakdown[])
@@ -258,24 +255,6 @@ async function load() {
                 :empty-message="emptyBreakdownMessage"
               />
             </section>
-          </div>
-        </article>
-        <article v-if="secondaryMetrics.length" class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Totals</p>
-              <h2>Summary</h2>
-            </div>
-          </div>
-          <div class="stat-list">
-            <div v-for="metric in secondaryMetrics" :key="metric">
-              <span>{{
-                metric === "sessions"
-                  ? "Estimated sessions"
-                  : publicMetricLabels[metric]
-              }}</span>
-              <strong>{{ number(report.data.totals[metric]) }}</strong>
-            </div>
           </div>
         </article>
         <article v-if="report.data.traffic" class="panel wide public-details">

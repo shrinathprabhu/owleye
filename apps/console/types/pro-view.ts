@@ -64,11 +64,15 @@ export const PRO_VIEW_BREAKDOWNS = {
   source: "Campaign source",
   medium: "Campaign medium",
   page: "Page path",
+  property: "Event property",
 } as const;
 export type ProViewBreakdown = keyof typeof PRO_VIEW_BREAKDOWNS;
 export type ProViewDateRange = { days: number; compare_previous: boolean };
 
 export type ProViewWidgetDefinition = {
+  metric?: "events" | "visitors" | "sessions";
+  breakdown_property?: string;
+  property_filters?: { filters: ProViewPropertyFilter[]; logic: "and" | "or" };
   date_range?: ProViewDateRange;
   breakdown?: ProViewBreakdown;
   comparison: ProViewComparison;
@@ -206,6 +210,7 @@ export function defaultProViewDefinition(
 ): ProViewWidgetDefinition {
   return {
     comparison: "none",
+    metric: "events",
     date_range: { days: 30, compare_previous: false },
     breakdown: "time",
     display: {
@@ -297,6 +302,8 @@ export function widgetRangeLabel(definition: ProViewWidgetDefinition) {
   return `${days === 1 ? "Last 24 hours" : `Last ${days} days`}${compare_previous ? " vs previous period" : ""}`;
 }
 export function breakdownLabel(definition: ProViewWidgetDefinition) {
+  if (definition.breakdown === "property" && definition.visualization !== "map")
+    return `Property: ${definition.breakdown_property ?? ""}`;
   return PRO_VIEW_BREAKDOWNS[
     definition.visualization === "map"
       ? "country"
@@ -308,6 +315,9 @@ export function breakdownLabel(definition: ProViewWidgetDefinition) {
 export function widgetRequestBody(definition: ProViewWidgetDefinition) {
   return {
     comparison: definition.comparison,
+    metric: definition.metric,
+    breakdown_property: definition.breakdown_property,
+    property_filters: definition.property_filters,
     date_range: definition.date_range,
     breakdown: definition.breakdown,
     display: definition.display,
@@ -318,4 +328,12 @@ export function widgetRequestBody(definition: ProViewWidgetDefinition) {
     title: definition.title,
     visualization: definition.visualization,
   };
+}
+
+export function widgetMetricLabel(definition?: ProViewWidgetDefinition | null) {
+  return {
+    events: "Occurrences",
+    visitors: "Unique visitors",
+    sessions: "Sessions",
+  }[definition?.metric ?? "events"];
 }

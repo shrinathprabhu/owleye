@@ -86,7 +86,9 @@ export function chartOptions(
   if (metric === "value") return ["bar"];
   if (evidence.rows.filter((row) => (row[metric] ?? 0) > 0).length < 2)
     return [];
-  return ["bar", "pie", "donut"];
+  return metric === "visitors" || metric === "sessions"
+    ? ["bar"]
+    : ["bar", "pie", "donut"];
 }
 export function defaultChart(evidence: AiEvidence): AiChart {
   const options = chartOptions(evidence, evidence.metric ?? "visitors");

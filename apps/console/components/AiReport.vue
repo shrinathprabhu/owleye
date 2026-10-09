@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { downloadCsv } from "~/utils/csv";
 import type { AiPromptResponse, AiMetric, AiChart } from "~/types/ai";
 import type { ChartSnapshot } from "~/utils/aiReportExport";
 import {
@@ -24,6 +25,33 @@ const visibleKind = computed(() =>
     : (options.value[0] ?? "none"),
 );
 const exporting = ref(false);
+function downloadTable() {
+  const e = evidence.value;
+  downloadCsv(`owleye-${e.report}-${e.start_date}-${e.end_date}.csv`, [
+    [
+      "Start date (UTC)",
+      "End date (UTC)",
+      "Scope",
+      "Group",
+      "Events",
+      "Pageviews",
+      "Visitors",
+      "Sessions",
+      "Measurement",
+    ],
+    ...e.rows.map((row) => [
+      e.start_date,
+      e.end_date,
+      reportScope(e),
+      row.label,
+      row.events,
+      row.pageviews,
+      row.visitors,
+      row.sessions,
+      row.value,
+    ]),
+  ]);
+}
 function downloadData() {
   const url = URL.createObjectURL(
     new Blob([JSON.stringify(evidence.value, null, 2)], {
@@ -78,6 +106,14 @@ async function download() {
 </script>
 <template>
   <div class="ai-report">
+    <p
+      v-if="response.explanation_source === 'fallback'"
+      class="ai-report-note"
+      role="status"
+    >
+      Evidence summary · the AI explanation was unavailable or did not pass
+      validation.
+    </p>
     <p class="ai-answer">{{ response.answer }}</p>
     <div v-if="options.length" class="ai-report-controls">
       <label
@@ -129,6 +165,14 @@ async function download() {
       </button>
     </div>
     <p v-if="exportError" role="alert">{{ exportError }}</p>
+    <button
+      type="button"
+      class="text-button"
+      :disabled="!evidence.rows.length"
+      @click="downloadTable"
+    >
+      Download CSV
+    </button>
     <button type="button" class="text-button" @click="downloadData">
       Download supporting data (JSON)
     </button>
@@ -307,5 +351,11 @@ summary:focus-visible {
   .ai-answer {
     font-size: 14px;
   }
+}
+</style>
+
+<style scoped>
+.text-button {
+  color: #dbe7ff;
 }
 </style>

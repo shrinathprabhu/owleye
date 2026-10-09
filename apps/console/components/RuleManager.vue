@@ -213,7 +213,8 @@ function selectorLabel(rule: TrackingRule) {
         <p>
           Rules are stored by the API and downloaded by the optional SDK rules
           module. Nothing is inferred, and every custom field is deliberately
-          bounded.
+          bounded. Rules start collecting after they are enabled; they do not
+          recover activity from before publication.
         </p>
       </div>
       <span v-if="readOnly" class="status-badge neutral">Read-only app</span>

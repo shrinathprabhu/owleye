@@ -64,7 +64,7 @@ test("country labels and scopes use friendly names without altering stored codes
   assert.equal(defaultChart({ ...evidence, report: "country" }), "none");
   assert.equal(
     defaultChart({ ...evidence, report: "country", chart: "donut" }),
-    "donut",
+    "bar",
   );
 });
 
@@ -91,7 +91,7 @@ test("totals and single buckets never invite meaningless charts", () => {
   ]);
   assert.deepEqual(
     chartOptions({ ...evidence, report: "browser", chart: "bar" }, "visitors"),
-    ["bar", "pie", "donut"],
+    ["bar"],
   );
   assert.deepEqual(
     chartOptions({ ...evidence, chart: "auto" }, "visitors"),
@@ -124,4 +124,19 @@ test("measurement gaps stay unknown and zero CLS remains a valid bar value", () 
     chartOptions({ ...measurements, report: "page", chart: "pie" }, "value"),
     ["bar"],
   );
+});
+
+test("category shares require additive metrics", () => {
+  const categories: AiEvidence = {
+    ...evidence,
+    report: "browser",
+    chart: "pie",
+  };
+  assert.deepEqual(chartOptions(categories, "sessions"), ["bar"]);
+  assert.deepEqual(chartOptions(categories, "events"), ["bar", "pie", "donut"]);
+  assert.deepEqual(chartOptions(categories, "pageviews"), [
+    "bar",
+    "pie",
+    "donut",
+  ]);
 });

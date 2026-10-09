@@ -30,13 +30,15 @@ export type AiModeResponse = {
 export type AiPromptResponse = {
   accepted: boolean;
   answer: string;
+  explanation_source?: "model" | "fallback" | "clarification";
   request_id: string;
   evidence: AiEvidence;
   app_prompts_remaining: number;
   member_prompts_remaining: number;
 };
 
-export type AiMetric = "events" | "pageviews" | "visitors" | "sessions" | "value";
+export type AiMetric =
+  "events" | "pageviews" | "visitors" | "sessions" | "value";
 export type AiChart = "auto" | "none" | "line" | "bar" | "pie" | "donut";
 export type AiEvidence = {
   report: string;

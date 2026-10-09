@@ -62,6 +62,7 @@ pub(super) fn validate_widget(mut request: WidgetRequest) -> Result<WidgetReques
             | "source"
             | "medium"
             | "page"
+            | "property"
     ) {
         return Err(ApiError::BadRequest("Unsupported chart breakdown".into()));
     }
@@ -72,6 +73,24 @@ pub(super) fn validate_widget(mut request: WidgetRequest) -> Result<WidgetReques
     }
     if request.kind == "chart" {
         validate_chart_filters(&request.filters)?;
+        if !matches!(request.metric.as_str(), "events" | "visitors" | "sessions") {
+            return Err(ApiError::BadRequest(
+                "Chart metric must be events, visitors, or sessions".into(),
+            ));
+        }
+        if matches!(request.metric.as_str(), "visitors" | "sessions")
+            && matches!(request.visualization.as_str(), "pie" | "donut")
+        {
+            request.visualization = "bar".into();
+        }
+        if request.breakdown == "property" {
+            validate_property_key(request.breakdown_property.as_deref().unwrap_or_default())?;
+        } else {
+            request.breakdown_property = None;
+        }
+        if let Some(group) = &request.property_filters {
+            validate_property_group(group)?;
+        }
         let source = request
             .source
             .as_ref()

@@ -306,6 +306,22 @@ async function sendPrompt() {
             Ask about locations, events, traffic, or campaign conversions.
             Include the filters and date range you want to explore.
           </p>
+          <div class="starter-questions">
+            <button
+              v-for="question in [
+                'Page views by day for the last 7 days',
+                'Which pages had the most visitors this month?',
+                'Which events fired most often last week?',
+              ]"
+              :key="question"
+              type="button"
+              class="chat-text-button"
+              :disabled="!status?.can_use || sending"
+              @click="editQuestion(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
         </div>
         <article
           v-for="item in submitted"
@@ -446,6 +462,13 @@ async function sendPrompt() {
 </template>
 
 <style scoped>
+.starter-questions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
 .clarification-context {
   display: flex;
   flex-wrap: wrap;

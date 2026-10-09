@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { downloadCsv, type CsvCell } from "~/utils/csv";
 import {
   BarChart,
   FunnelChart,
@@ -19,6 +20,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import { useEChartLifecycle } from "~/composables/useEChartLifecycle";
 import {
   widgetRangeLabel,
+  widgetMetricLabel,
   breakdownLabel,
   type ProViewPreviewResponse,
   type ProViewWidgetDefinition,
@@ -53,6 +55,41 @@ const props = withDefaults(
     preview: null,
   },
 );
+
+function downloadTable() {
+  const definition = props.definition;
+  const preview = props.preview;
+  if (!definition || !preview) return;
+  const rows: CsvCell[][] = [["Title", "Period", "Metric", "Group", "Value"]];
+  for (const period of [preview.current, preview.previous]) {
+    if (!period) continue;
+    for (const point of period.points ?? [])
+      rows.push([
+        definition.title,
+        period.label,
+        widgetMetricLabel(definition),
+        point.period,
+        point.value,
+      ]);
+    for (const step of period.steps ?? [])
+      rows.push([
+        definition.title,
+        period.label,
+        "Visitors reaching step",
+        step.name,
+        step.count,
+      ]);
+  }
+  for (const point of preview.map ?? [])
+    rows.push([
+      definition.title,
+      preview.current?.label,
+      widgetMetricLabel(definition),
+      point.name,
+      point.value,
+    ]);
+  downloadCsv("owleye-pro-view.csv", rows);
+}
 
 const emit = defineEmits<{ retry: [] }>();
 const chartEl = ref<HTMLElement | null>(null);
@@ -210,8 +247,9 @@ function buildOption(): EChartsCoreOption {
   }
 
   if (
-    definition.visualization === "pie" ||
-    definition.visualization === "donut"
+    (definition.visualization === "pie" ||
+      definition.visualization === "donut") &&
+    !["visitors", "sessions"].includes(definition.metric ?? "events")
   ) {
     const isDonut = definition.visualization === "donut";
     const hasPrevious = Boolean(preview.previous?.points?.length);
@@ -262,7 +300,9 @@ function buildOption(): EChartsCoreOption {
       ...(preview.previous?.points?.map((point) => point.period) ?? []),
     ]),
   );
-  const seriesType = definition.visualization;
+  const seriesType = ["pie", "donut"].includes(definition.visualization)
+    ? "bar"
+    : definition.visualization;
   const makeSeries = (
     period: ProViewPreviewResponse["current"],
     color: string,
@@ -356,11 +396,26 @@ function formatDuration(value?: number | null) {
           {{ definition?.title || "Nothing selected yet" }}
         </h2>
       </div>
+      <button
+        v-if="hasData && !loading && !error"
+        class="button compact secondary"
+        type="button"
+        @click="downloadTable"
+      >
+        Download CSV
+      </button>
       <span v-if="definition" class="preview-chip">
         {{ definition.kind === "funnel" ? "funnel" : definition.visualization }}
       </span>
     </header>
 
+    <p v-if="definition?.kind === 'chart'" class="field-note">
+      {{ widgetMetricLabel(definition) }} for the selected event or rule.
+      <template v-if="definition.metric && definition.metric !== 'events'"
+        >Counts are estimates; the same visitor or session can appear in
+        multiple groups.</template
+      >
+    </p>
     <div v-if="loading" class="preview-state" role="status">
       <span class="preview-orbit" aria-hidden="true"></span>
       <strong>Loading preview…</strong>
@@ -389,7 +444,7 @@ function formatDuration(value?: number | null) {
       <p>{{ preview?.current?.label }}</p>
       <LazyCountryGeoChart
         :countries="mapCountries"
-        metric-label="Events"
+        :metric-label="widgetMetricLabel(definition)"
         error=""
         hydrate-on-visible
         :loading="false"
@@ -398,7 +453,7 @@ function formatDuration(value?: number | null) {
         <p>{{ preview.previous.label }}</p>
         <LazyCountryGeoChart
           :countries="previousMapCountries"
-          metric-label="Events"
+          :metric-label="widgetMetricLabel(definition)"
           error=""
           hydrate-on-visible
           :loading="false"
@@ -495,7 +550,7 @@ function formatDuration(value?: number | null) {
               definition.breakdown && definition.breakdown !== 'time' && !isMap
             "
           >
-            · up to 20 groups</template
+            · top 20 groups + Other</template
           ></template
         ></span
       >

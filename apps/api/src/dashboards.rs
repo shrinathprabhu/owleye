@@ -15,11 +15,15 @@ use crate::{
     ApiError, AppState,
 };
 
+#[cfg(test)]
+mod chart_tests;
 mod query;
 mod validation;
 
+#[cfg(test)]
+use query::chart_conditions;
 use query::clickhouse_datetime;
-use query::{chart_conditions, funnel_query, preview_bucket_count, preview_bucket_label};
+use query::{funnel_query, preview_bucket_count, preview_bucket_label};
 #[cfg(test)]
 use validation::validate_funnel;
 use validation::{normalize_name, validate_previewable_funnel, validate_widget};
@@ -68,6 +72,12 @@ pub(crate) struct DashboardWidget {
     date_range: Option<WidgetDateRange>,
     #[serde(default = "default_breakdown")]
     breakdown: String,
+    #[serde(default = "default_chart_metric")]
+    metric: String,
+    #[serde(default)]
+    breakdown_property: Option<String>,
+    #[serde(default)]
+    property_filters: Option<FunnelPropertyGroup>,
     comparison: String,
     created_at: String,
     created_by: DashboardUser,
@@ -225,6 +235,10 @@ struct WidgetDateRange {
     compare_previous: bool,
 }
 
+fn default_chart_metric() -> String {
+    "events".into()
+}
+
 fn default_breakdown() -> String {
     "time".into()
 }
@@ -236,6 +250,12 @@ pub(crate) struct WidgetRequest {
     date_range: Option<WidgetDateRange>,
     #[serde(default = "default_breakdown")]
     breakdown: String,
+    #[serde(default = "default_chart_metric")]
+    metric: String,
+    #[serde(default)]
+    breakdown_property: Option<String>,
+    #[serde(default)]
+    property_filters: Option<FunnelPropertyGroup>,
     #[serde(default = "default_comparison")]
     comparison: String,
     #[serde(default)]
@@ -321,6 +341,12 @@ struct StoredWidgetConfig {
     date_range: Option<WidgetDateRange>,
     #[serde(default = "default_breakdown")]
     breakdown: String,
+    #[serde(default = "default_chart_metric")]
+    metric: String,
+    #[serde(default)]
+    breakdown_property: Option<String>,
+    #[serde(default)]
+    property_filters: Option<FunnelPropertyGroup>,
     comparison: String,
     filters: Value,
     funnel: Option<FunnelDefinition>,
@@ -917,6 +943,9 @@ fn stored_widget_config(request: &WidgetRequest) -> StoredWidgetConfig {
     StoredWidgetConfig {
         date_range: request.date_range.clone(),
         breakdown: request.breakdown.clone(),
+        metric: request.metric.clone(),
+        breakdown_property: request.breakdown_property.clone(),
+        property_filters: request.property_filters.clone(),
         comparison: request.comparison.clone(),
         filters: request.filters.clone(),
         funnel: request.funnel.clone(),
@@ -936,6 +965,9 @@ fn decode_widget(row: WidgetRow, created_by: DashboardUser) -> Result<DashboardW
     Ok(DashboardWidget {
         date_range: config.date_range,
         breakdown: config.breakdown,
+        metric: config.metric,
+        breakdown_property: config.breakdown_property,
+        property_filters: config.property_filters,
         comparison: config.comparison,
         created_at: timestamp(row.created_at),
         created_by,
@@ -1024,17 +1056,12 @@ async fn live_chart_preview(
     site: &ActiveSite,
     request: &WidgetRequest,
 ) -> Result<WidgetPreviewResponse, ApiError> {
-    let Some(source) = request.source.as_ref() else {
-        return Err(ApiError::BadRequest(
-            "Chart widgets require a source".to_owned(),
-        ));
-    };
     let (current_range, previous_range, granularity) = widget_ranges(request, Utc::now())?;
 
     if request.visualization == "map" {
-        let rows = query_map_points(state, site, source, &request.filters, &current_range).await?;
+        let rows = query_map_points(state, site, request, &current_range).await?;
         let previous = if let Some(range) = previous_range {
-            let rows = query_map_points(state, site, source, &request.filters, &range).await?;
+            let rows = query_map_points(state, site, request, &range).await?;
             Some(PreviewPeriod {
                 label: range.label,
                 steps: None,
@@ -1079,9 +1106,7 @@ async fn live_chart_preview(
         }
         let sql = query::category_query(
             &site.tracking_id,
-            source,
-            &request.filters,
-            &request.breakdown,
+            request,
             &current_range,
             previous_range.as_ref(),
         );
@@ -1123,21 +1148,12 @@ async fn live_chart_preview(
             query_chart_period(
                 state,
                 site,
-                source,
-                &request.filters,
+                request,
                 current_range,
                 granularity,
                 aligned_labels,
             ),
-            query_chart_period(
-                state,
-                site,
-                source,
-                &request.filters,
-                range,
-                granularity,
-                aligned_labels,
-            ),
+            query_chart_period(state, site, request, range, granularity, aligned_labels,),
         )?;
         (current, Some(previous))
     } else {
@@ -1145,8 +1161,7 @@ async fn live_chart_preview(
             query_chart_period(
                 state,
                 site,
-                source,
-                &request.filters,
+                request,
                 current_range,
                 granularity,
                 aligned_labels,
@@ -1166,20 +1181,20 @@ async fn live_chart_preview(
 async fn query_chart_period(
     state: &AppState,
     site: &ActiveSite,
-    source: &WidgetSource,
-    filters: &Value,
+    request: &WidgetRequest,
     range: FunnelPeriodRange,
     granularity: &str,
     aligned_labels: bool,
 ) -> Result<PreviewPeriod, ApiError> {
     let bucket_seconds = if granularity == "hour" { 3600 } else { 86400 };
-    let conditions = chart_conditions(&site.tracking_id, source, filters, &range);
+    let conditions = query::chart_scope(&site.tracking_id, request, &range);
     let start = clickhouse_datetime(range.start);
+    let metric = query::chart_metric(&request.metric, "1");
     let sql = format!(
         r#"
         SELECT
             toInt64(intDiv(dateDiff('second', {start}, occurred_at), {bucket_seconds})) AS bucket,
-            toUInt64(count()) AS value
+            toUInt64({metric}) AS value
         FROM owleye_events
         WHERE {conditions}
         GROUP BY bucket
@@ -1216,14 +1231,14 @@ async fn query_chart_period(
 async fn query_map_points(
     state: &AppState,
     site: &ActiveSite,
-    source: &WidgetSource,
-    filters: &Value,
+    request: &WidgetRequest,
     range: &FunnelPeriodRange,
 ) -> Result<Vec<MapBucketRow>, ApiError> {
-    let conditions = chart_conditions(&site.tracking_id, source, filters, range);
+    let conditions = query::chart_scope(&site.tracking_id, request, range);
+    let metric = query::chart_metric(&request.metric, "1");
     let sql = format!(
         r#"
-        SELECT country, toUInt64(count()) AS value
+        SELECT country, toUInt64({metric}) AS value
         FROM owleye_events
         WHERE {conditions} AND country != ''
         GROUP BY country
@@ -1993,16 +2008,14 @@ mod tests {
             name: "Signup".into(),
             has_location: false,
         };
-        let rows = r#"(SELECT site_id,event_name,city,country,utm_campaign, now64(3)-toIntervalHour(age) AS occurred_at, now64(3)+toIntervalDay(active) AS retention_active_until, 'external' AS event_type, '' AS rule_id, '/' AS url_path, '' AS referrer_host, '' AS browser_name, '' AS os_name, '' AS device_type, '' AS utm_source, '' AS utm_medium FROM values('site_id String,event_name String,city String,country String,utm_campaign String,age UInt8,active Int8',('test','signup','London','GB','',1,1),('test','signup','London','CA','old',25,1),('other','signup','London','GB','',1,1),('test','noise','London','GB','',1,1),('test','signup','London','GB','expired',1,-1)))"#;
+        let rows = r#"(SELECT 'visitor' AS visitor_id, 'session' AS anon_session_id, site_id,event_name,city,country,utm_campaign, now64(3)-toIntervalHour(age) AS occurred_at, now64(3)+toIntervalDay(active) AS retention_active_until, 'external' AS event_type, '' AS rule_id, '/' AS url_path, '' AS referrer_host, '' AS browser_name, '' AS os_name, '' AS device_type, '' AS utm_source, '' AS utm_medium FROM values('site_id String,event_name String,city String,country String,utm_campaign String,age UInt8,active Int8',('test','signup','London','GB','',1,1),('test','signup','London','CA','old',25,1),('other','signup','London','GB','',1,1),('test','noise','London','GB','',1,1),('test','signup','London','GB','expired',1,-1)))"#;
         for dimension in [
             "browser", "country", "os", "city", "device", "campaign", "referrer", "source",
             "medium", "page",
         ] {
             let sql = query::category_query(
                 "test",
-                &source,
-                &json!({}),
-                dimension,
+                &serde_json::from_value(json!({"kind":"chart", "title":"Test", "visualization":"bar", "source":source, "breakdown":dimension})).unwrap(),
                 &current,
                 Some(&previous),
             )
@@ -2042,7 +2055,7 @@ mod tests {
             ("test", json!({"country":"CA"}), 0),
             ("empty", json!({}), 0),
         ] {
-            let sql = query::category_query(site, &source, &filter, "campaign", &current, None)
+            let sql = query::category_query(site, &serde_json::from_value(json!({"kind":"chart", "title":"Test", "visualization":"bar", "source":source, "filters":filter, "breakdown":"campaign"})).unwrap(), &current, None)
                 .replace("FROM owleye_events", &format!("FROM {rows}"));
             let result = clickhouse.query_json_each_row::<Value>(&sql).await.unwrap();
             assert_eq!(result.len(), count);

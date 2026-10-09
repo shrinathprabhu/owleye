@@ -145,6 +145,11 @@ impl ReportPlan {
         })?;
         normalize_values(&mut self.os, normalize_os)?;
         super::insights::normalize(self)?;
+        if matches!(self.metric, Metric::Visitors | Metric::Sessions)
+            && matches!(self.chart, Chart::Pie | Chart::Donut)
+        {
+            self.chart = Chart::Bar;
+        }
         self.validate()
     }
     pub fn validate(&self) -> Result<(), ApiError> {
@@ -542,6 +547,80 @@ pub(crate) struct Evidence {
     pub output: Output,
     pub rows: Vec<ReportRow>,
     pub details: super::insights::InsightDetails,
+    pub derived: Vec<DerivedRate>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DerivedRate {
+    pub label: String,
+    pub kind: &'static str,
+    pub numerator: f64,
+    pub denominator: f64,
+    pub percent: f64,
+    pub denominator_scope: String,
+}
+
+// Derived percentages use only released rows. Never reconstruct withheld groups
+// or add visitor/session counts from overlapping categories.
+pub(super) fn derived_rates(report: &str, metric: Metric, rows: &[ReportRow]) -> Vec<DerivedRate> {
+    let rate = |label: &str, kind, numerator, denominator, scope: String| DerivedRate {
+        label: label.into(),
+        kind,
+        numerator: numerator as f64,
+        denominator: denominator as f64,
+        percent: numerator as f64 / denominator as f64 * 100.0,
+        denominator_scope: scope,
+    };
+    if report == "funnel" {
+        let Some(first) = rows.first().filter(|r| r.visitors >= 5) else {
+            return vec![];
+        };
+        // Funnel counts are monotonic; if the first stage was withheld all
+        // subsequent stages are withheld too. Missing later stages stay absent.
+        return rows
+            .iter()
+            .skip(1)
+            .filter(|r| r.visitors >= 5 && r.visitors <= first.visitors)
+            .map(|r| {
+                rate(
+                    &r.label,
+                    "conversion",
+                    r.visitors,
+                    first.visitors,
+                    format!("Visitors at {} within the requested dates", first.label),
+                )
+            })
+            .collect();
+    }
+    if !matches!(
+        report,
+        "country" | "city" | "browser" | "device" | "os" | "event" | "page" | "campaign"
+    ) || !matches!(metric, Metric::Events | Metric::Pageviews)
+    {
+        return vec![];
+    }
+    let value = |r: &ReportRow| {
+        if metric == Metric::Pageviews {
+            r.pageviews
+        } else {
+            r.events
+        }
+    };
+    let denominator: u64 = rows.iter().map(value).sum();
+    if denominator == 0 {
+        return vec![];
+    }
+    rows.iter()
+        .map(|r| {
+            rate(
+                &r.label,
+                "share_of_displayed_rows",
+                value(r),
+                denominator,
+                "Displayed rows only; excludes withheld and omitted categories".into(),
+            )
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -768,6 +847,11 @@ pub(super) async fn execute(
         chart,
         metric: plan.metric,
         output: plan.output,
+        derived: derived_rates(
+            serde_json::to_value(plan.report).unwrap().as_str().unwrap(),
+            plan.metric,
+            &rows,
+        ),
         rows,
         details,
     })

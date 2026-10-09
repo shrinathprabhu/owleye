@@ -44,3 +44,20 @@ test("saved chart requests exclude server metadata and retain chart controls", (
   assert.equal(body.breakdown, "city");
   assert.deepEqual(body.date_range, { days: 30, compare_previous: false });
 });
+
+test("new chart controls survive save and reload", () => {
+  const chart = defaultProViewDefinition("chart");
+  assert.equal(chart.metric, "events");
+  chart.metric = "visitors";
+  chart.breakdown = "property";
+  chart.breakdown_property = "format";
+  chart.property_filters = {
+    logic: "and",
+    filters: [{ id: "a", key: "plan", operator: "equals", value: "pro" }],
+  };
+  const body = widgetRequestBody(chart);
+  assert.equal(body.metric, "visitors");
+  assert.equal(body.breakdown_property, "format");
+  assert.deepEqual(body.property_filters, chart.property_filters);
+  assert.equal(breakdownLabel(chart), "Property: format");
+});

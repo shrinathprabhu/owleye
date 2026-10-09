@@ -204,13 +204,138 @@ pub(super) async fn explain(
     config: &AiSettings,
     prompt: &str,
     evidence: &super::report::Evidence,
-) -> Result<String, ApiError> {
-    let text = completion(config, json!([
+) -> Result<(String, &'static str), ApiError> {
+    let result = completion(config, json!([
         {"role":"system", "content":include_str!("skills/explain-v1.md")},
         {"role":"user", "content":serde_json::to_string(&json!({"question":prompt,"evidence":evidence,"display":evidence.answer_context()})).map_err(|_| unavailable())?}
-    ]), None).await?;
-    validate_explanation(&text, evidence)?;
-    Ok(super::sanitize::redact(&text))
+    ]), None).await;
+    Ok(checked_explanation(result, evidence))
+}
+
+#[cfg(test)]
+fn checked_answer(result: Result<String, ApiError>, evidence: &super::report::Evidence) -> String {
+    checked_explanation(result, evidence).0
+}
+
+fn checked_explanation(
+    result: Result<String, ApiError>,
+    evidence: &super::report::Evidence,
+) -> (String, &'static str) {
+    match result {
+        Ok(text) if validate_explanation(&text, evidence).is_ok() => {
+            tracing::info!(
+                event = "ai_explanation",
+                outcome = "accepted",
+                "AI explanation evaluated"
+            );
+            (super::sanitize::redact(&text), "model")
+        }
+        result => {
+            let reason = if result.is_err() {
+                "provider_error"
+            } else {
+                "validation_failed"
+            };
+            tracing::warn!(
+                event = "ai_explanation",
+                outcome = "fallback",
+                reason,
+                "AI explanation evaluated"
+            );
+            (fallback_answer(evidence), "fallback")
+        }
+    }
+}
+
+// Only already-suppressed evidence is used; never query or infer hidden rows.
+fn fallback_answer(evidence: &super::report::Evidence) -> String {
+    use super::report::Metric;
+    let display = evidence.answer_context();
+    let mut scope = Vec::new();
+    for (label, values) in [
+        ("countries", &display.countries),
+        ("browsers", &display.browsers),
+        ("devices", &display.devices),
+        ("operating systems", &display.operating_systems),
+        ("cities", &evidence.details.cities),
+        ("events", &evidence.details.events),
+        ("campaigns", &evidence.details.campaigns),
+        ("properties", &evidence.details.properties),
+    ] {
+        if !values.is_empty() {
+            scope.push(format!("{label}: {}", values.join(", ")));
+        }
+    }
+    let metric = match evidence.metric {
+        Metric::Events => "events",
+        Metric::Pageviews => "page views",
+        Metric::Visitors => "estimated visitors",
+        Metric::Sessions => "estimated sessions",
+        Metric::Value => {
+            if evidence
+                .details
+                .events
+                .iter()
+                .any(|event| event == "web_vital_cls")
+            {
+                "CLS"
+            } else {
+                "ms"
+            }
+        }
+    };
+    let mut answer = format!(
+        "{} ({} to {}, UTC).",
+        display.period, evidence.start_date, evidence.end_date
+    );
+    if !scope.is_empty() {
+        answer.push_str(&format!(" Filters — {}.", scope.join("; ")));
+    }
+    if evidence.rows.is_empty() {
+        answer.push_str(" No reportable rows are available. This can mean no matching activity or groups withheld for privacy.");
+    } else {
+        for row in evidence.rows.iter().take(5) {
+            let value = match evidence.metric {
+                Metric::Events => row.events.to_string(),
+                Metric::Pageviews => row.pageviews.to_string(),
+                Metric::Visitors => row.visitors.to_string(),
+                Metric::Sessions => row.sessions.to_string(),
+                Metric::Value => {
+                    if evidence
+                        .details
+                        .events
+                        .iter()
+                        .any(|event| event == "web_vital_cls")
+                    {
+                        format!("{:.3}", row.value)
+                    } else {
+                        format!("{:.1}", row.value)
+                    }
+                }
+            };
+            answer.push_str(&format!("\n{}: {value} {metric}.", row.label));
+        }
+        if evidence.rows.len() > 5 {
+            answer.push_str("\nSee the supporting data for the remaining groups.");
+        }
+    }
+    answer.push_str(&format!(
+        "\nGroups below {} visitors are withheld where privacy suppression applies.",
+        evidence.groups_suppressed_below_visitors
+    ));
+    for rate in &evidence.derived {
+        answer.push_str(&format!(
+            "\n{}: {:.1}% ({}; {}).",
+            rate.label,
+            rate.percent,
+            rate.kind.replace('_', " "),
+            rate.denominator_scope
+        ));
+    }
+    for note in &evidence.details.notes {
+        answer.push_str(&format!("\n{note}"));
+    }
+    super::sanitize::redact(&answer)
 }
 
 fn validate_explanation(text: &str, evidence: &super::report::Evidence) -> Result<(), ApiError> {
@@ -244,6 +369,7 @@ fn validate_explanation(text: &str, evidence: &super::report::Evidence) -> Resul
     });
     if !has_period
         || filters_missing
+        || !numbers_grounded(text, evidence)
         || DATES.find_iter(text).any(|date| {
             date.as_str() != evidence.start_date
                 && date.as_str() != evidence.end_date
@@ -258,6 +384,81 @@ fn validate_explanation(text: &str, evidence: &super::report::Evidence) -> Resul
         return Err(unavailable());
     }
     Ok(())
+}
+
+// Check numeric claims against evidence, allowing common display rounding.
+// This is a grounding check, not a proof that a number is attached to the right claim.
+fn numbers_grounded(text: &str, evidence: &super::report::Evidence) -> bool {
+    static NUMBERS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"[-+]?\b\d+(?:,\d{3})*(?:\.\d+)?\b").expect("number regex")
+    });
+    fn collect_numbers(value: &Value, output: &mut Vec<f64>) {
+        match value {
+            Value::Number(number) => {
+                if let Some(n) = number.as_f64() {
+                    output.push(n);
+                }
+            }
+            Value::Array(values) => values.iter().for_each(|v| collect_numbers(v, output)),
+            Value::Object(values) => values.values().for_each(|v| collect_numbers(v, output)),
+            _ => {}
+        }
+    }
+    let mut values = Vec::new();
+    collect_numbers(
+        &serde_json::to_value(evidence).unwrap_or_default(),
+        &mut values,
+    );
+    // Dates, period names and group labels are context, not metric values.
+    // Their digits must not justify an invented count (e.g. 2026 visitors).
+    let dates = regex::Regex::new(r"\b\d{4}-\d{2}-\d{2}\b").expect("date regex");
+    let mut narrative = dates.replace_all(text, "").into_owned();
+    for label in std::iter::once(evidence.period_label.as_str())
+        .chain(evidence.rows.iter().map(|r| r.label.as_str()))
+    {
+        if !label.is_empty() {
+            let pattern = regex::Regex::new(&format!(r"(?i)\b{}\b", regex::escape(label)))
+                .expect("escaped label");
+            narrative = pattern.replace_all(&narrative, "").into_owned();
+        }
+    }
+    let percentages =
+        regex::Regex::new(r"([-+]?\d+(?:\.\d+)?)\s*(?:%|percent\b)").expect("percent regex");
+    if percentages.captures_iter(&narrative).any(|m| {
+        let value: f64 = m[1].parse().unwrap_or(f64::NAN);
+        !evidence.derived.iter().any(|r| {
+            value == r.percent
+                || value == r.percent.round()
+                || value == (r.percent * 10.0).round() / 10.0
+        })
+    }) {
+        return false;
+    }
+    // "Top 3 pages" describes the displayed row count, not a traffic metric.
+    let ranks = regex::Regex::new(r"(?i)\b(?:top|first)\s+(\d+)\s+(?:pages?|rows?|groups?|results?|events?|countries|browsers?|devices?|campaigns?)\b").expect("rank regex");
+    let mut invalid_rank = false;
+    narrative = ranks
+        .replace_all(&narrative, |m: &regex::Captures<'_>| {
+            if !m[1]
+                .parse::<usize>()
+                .is_ok_and(|n| n > 0 && n <= evidence.rows.len())
+            {
+                invalid_rank = true;
+            }
+            "".to_string()
+        })
+        .into_owned();
+    if invalid_rank {
+        return false;
+    }
+    NUMBERS.find_iter(&narrative).all(|m| {
+        let Ok(value) = m.as_str().replace(',', "").parse::<f64>() else {
+            return false;
+        };
+        values
+            .iter()
+            .any(|n| value == *n || value == n.round() || value == (n * 10.0).round() / 10.0)
+    })
 }
 
 #[cfg(test)]
@@ -280,8 +481,16 @@ mod tests {
             chart: Chart::None,
             metric: Metric::Visitors,
             output: Output::Text,
-            rows: vec![],
+            rows: vec![super::super::report::ReportRow {
+                label: "Total".into(),
+                events: 8,
+                pageviews: 8,
+                visitors: 8,
+                sessions: 8,
+                value: 0.0,
+            }],
             details: Default::default(),
+            derived: vec![],
         };
         let display = evidence.answer_context();
         assert_eq!(display.countries, ["India"]);
@@ -291,7 +500,35 @@ mod tests {
             &evidence
         )
         .is_ok());
+        for result in [
+            Err(unavailable()),
+            Ok("Invalid narrative: 999 visitors".into()),
+        ] {
+            let answer = checked_answer(result, &evidence);
+            assert!(answer.contains("Total: 8 estimated visitors"));
+            assert!(answer.contains("India"));
+            assert!(answer.contains("Mac"));
+            assert!(!answer.contains("999"));
+        }
+        let mut withheld = Evidence {
+            rows: vec![],
+            ..evidence
+        };
+        assert!(fallback_answer(&withheld).contains("No reportable rows"));
+        assert!(!fallback_answer(&withheld).contains("0 estimated visitors"));
+        withheld.rows.push(super::super::report::ReportRow {
+            label: "Total".into(),
+            events: 8,
+            pageviews: 8,
+            visitors: 8,
+            sessions: 8,
+            value: 0.0,
+        });
+        let evidence = withheld;
         for answer in [
+            "In the last 14 days, 999 visitors used your app from India on Mac.",
+            "In the last 14 days, -8 visitors used your app from India on Mac.",
+            "In the last 14 days, 2026 visitors used your app from India on Mac.",
             "In the last 7 days, 8 visitors used your app from India on Mac.",
             "In the last 14 days, 8 visitors used your app on Mac.",
             "In the last 14 days, 8 visitors used your app from India.",
@@ -299,5 +536,80 @@ mod tests {
         ] {
             assert!(validate_explanation(answer, &evidence).is_err(), "{answer}");
         }
+    }
+
+    #[test]
+    fn legitimate_rates_ranks_and_measurement_units_survive_grounding() {
+        let row = |label: &str, visitors| super::super::report::ReportRow {
+            label: label.into(),
+            events: 0,
+            pageviews: 0,
+            visitors,
+            sessions: 0,
+            value: 0.0,
+        };
+        let mut evidence = Evidence {
+            report: "funnel".into(),
+            start_date: "2026-09-01".into(),
+            end_date: "2026-09-07".into(),
+            timezone: "UTC",
+            period_label: "last 7 days".into(),
+            groups_suppressed_below_visitors: 5,
+            country: vec![],
+            browser: vec![],
+            device: vec![],
+            os: vec![],
+            chart: Chart::None,
+            metric: Metric::Visitors,
+            output: Output::Text,
+            rows: vec![row("Viewed", 80), row("Converted", 30)],
+            details: Default::default(),
+            derived: vec![],
+        };
+        evidence.derived =
+            super::super::report::derived_rates("funnel", Metric::Visitors, &evidence.rows);
+        assert!(validate_explanation(
+            "In the last 7 days, a 38% conversion was observed.",
+            &evidence
+        )
+        .is_ok());
+        assert!(validate_explanation(
+            "In the last 7 days, a 39% conversion was observed.",
+            &evidence
+        )
+        .is_err());
+        evidence.report = "page".into();
+        evidence.rows = vec![row("/a", 40), row("/b", 20), row("/c", 10)];
+        evidence.derived.clear();
+        assert!(validate_explanation(
+            "In the last 7 days, your top 3 pages were /a, /b and /c.",
+            &evidence
+        )
+        .is_ok());
+        assert!(validate_explanation(
+            "In the last 7 days, your top 4 pages were /a, /b and /c.",
+            &evidence
+        )
+        .is_err());
+        evidence.metric = Metric::Value;
+        evidence.rows[0].value = 0.125;
+        evidence.rows.truncate(1);
+        evidence.details.events = vec!["web_vital_cls".into()];
+        assert!(fallback_answer(&evidence).contains("0.125 CLS"));
+        evidence.rows[0].value = 2480.0;
+        evidence.details.events = vec!["web_vital_lcp".into()];
+        assert!(fallback_answer(&evidence).contains("2480.0 ms"));
+        assert!(validate_explanation("In the last 7 days, LCP was 2480 ms.", &evidence).is_ok());
+        assert!(
+            validate_explanation("In the last 7 days, LCP was 2.5 seconds.", &evidence).is_err()
+        );
+        assert_eq!(
+            checked_explanation(Err(unavailable()), &evidence).1,
+            "fallback"
+        );
+        assert_eq!(
+            checked_explanation(Ok("In the last 7 days, LCP was 2480 ms.".into()), &evidence).1,
+            "model"
+        );
     }
 }

@@ -70,6 +70,7 @@ pub(crate) struct PromptRequest {
 pub(crate) struct PromptResponse {
     accepted: bool,
     answer: String,
+    explanation_source: &'static str,
     evidence: report::Evidence,
     request_id: String,
 }
@@ -235,8 +236,9 @@ async fn run_prompt_with_context(
                 output: report::Output::Text,
                 rows: vec![],
                 details: Default::default(),
+                derived: vec![],
             };
-            return Ok((answer, evidence, guard, false));
+            return Ok((answer, "clarification", evidence, guard, false));
         }
         requests::scope_on(&mut *state.sqlite.acquire().await?, &site, user).await?;
         let mut evidence = report::execute(state, &site.tracking_id, plan).await?;
@@ -251,8 +253,8 @@ async fn run_prompt_with_context(
             .chain(std::iter::once(prompt.as_str()))
             .collect::<Vec<_>>()
             .join("\n");
-        let answer = provider::explain(&state.settings.ai, &question, &evidence).await?;
-        Ok::<_, ApiError>((answer, evidence, guard, true))
+        let (answer, explanation_source) = provider::explain(&state.settings.ai, &question, &evidence).await?;
+        Ok::<_, ApiError>((answer, explanation_source, evidence, guard, true))
     })
     .await
     .unwrap_or_else(|_| {
@@ -260,7 +262,7 @@ async fn run_prompt_with_context(
             "AI timed out".into(),
         ))
     });
-    let (answer, evidence, _guard, accepted) = match result {
+    let (answer, explanation_source, evidence, _guard, accepted) = match result {
         Ok(result) => result,
         Err(error) => {
             requests::fail(&state.sqlite, &id).await?;
@@ -273,6 +275,7 @@ async fn run_prompt_with_context(
         return Ok(PromptResponse {
             accepted,
             answer,
+            explanation_source,
             evidence,
             request_id: id,
         });
@@ -284,6 +287,7 @@ async fn run_prompt_with_context(
     Ok(PromptResponse {
         accepted: true,
         answer,
+        explanation_source,
         evidence,
         request_id: id,
     })

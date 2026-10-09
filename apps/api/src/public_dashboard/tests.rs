@@ -68,8 +68,8 @@ async fn mock_clickhouse(
         captured.lock().unwrap().push(body.clone());
         if revoke {sqlx::query("UPDATE public_overview_shares SET revision='revoked',config_json=json_set(config_json,'$.enabled',json('false'))").execute(&pool).await.unwrap();}
         if body.contains("GROUP BY name") {"{\"name\":\"IN\",\"count\":7,\"visitors\":2,\"secret\":\"private\"}\n".into()}
-        else if body.contains("GROUP BY date") {format!("{{\"date\":\"{}\",\"visitors\":7,\"events\":99,\"secret\":\"private\"}}\n",chrono::Utc::now().date_naive())}
-        else {"{\"visitors\":7,\"pageviews\":80,\"events\":99,\"audience_pageviews\":80,\"audience_visitors\":6,\"secret\":\"private\"}\n".into()}
+        else if body.contains("GROUP BY date") {format!("{{\"date\":\"{}\",\"visitors\":6,\"events\":99,\"secret\":\"private\"}}\n",chrono::Utc::now().date_naive())}
+        else {"{\"visitors\":6,\"pageviews\":80,\"events\":99,\"audience_pageviews\":80,\"audience_visitors\":6,\"secret\":\"private\"}\n".into()}
     }}));
     state.clickhouse = ClickHouse::new(format!("http://{addr}")).unwrap();
     (
@@ -108,6 +108,10 @@ async fn cached_public_reads_share_aliases_but_recheck_permissions_and_revision(
         1,
         "aliases share the canonical cache key"
     );
+    assert!(queries.lock().unwrap()[0].contains(&format!(
+        "toUInt64({}) AS visitors",
+        crate::stats::VISITORS_SQL
+    )));
     let mut week = query("site");
     week.days = Some(7);
     let _ = overview(State(state.clone()), Query(week)).await.unwrap();

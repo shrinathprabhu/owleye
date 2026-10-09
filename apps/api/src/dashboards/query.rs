@@ -2,7 +2,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 
 use super::{
-    FunnelCondition, FunnelDefinition, FunnelPeriodRange, FunnelPropertyGroup, WidgetSource,
+    FunnelCondition, FunnelDefinition, FunnelPeriodRange, FunnelPropertyGroup, WidgetRequest,
+    WidgetSource,
 };
 use crate::{models::clickhouse_string, retention::ACTIVE_ROW_PREDICATE};
 
@@ -39,6 +40,34 @@ pub(super) fn chart_conditions(
     conditions.join(" AND ")
 }
 
+// Every chart shape and comparison uses the same metric and property scope.
+pub(super) fn chart_scope(
+    site_id: &str,
+    request: &WidgetRequest,
+    range: &FunnelPeriodRange,
+) -> String {
+    let mut scope = chart_conditions(
+        site_id,
+        request.source.as_ref().expect("validated chart source"),
+        &request.filters,
+        range,
+    );
+    if let Some(group) = &request.property_filters {
+        scope.push_str(&format!(" AND ({})", property_group_sql(group, "")));
+    }
+    scope
+}
+
+pub(super) fn chart_metric(metric: &str, condition: &str) -> String {
+    match metric {
+        "visitors" => format!("uniqCombined64If(visitor_id, ({condition}) AND visitor_id != '')"),
+        "sessions" => {
+            format!("uniqCombined64If(anon_session_id, ({condition}) AND anon_session_id != '')")
+        }
+        _ => format!("countIf({condition})"),
+    }
+}
+
 pub(super) fn preview_bucket_count(range: &FunnelPeriodRange, granularity: &str) -> usize {
     let unit_ms = if granularity == "hour" {
         3_600_000
@@ -53,15 +82,23 @@ pub(super) fn preview_bucket_count(range: &FunnelPeriodRange, granularity: &str)
 
 pub(super) fn category_query(
     site_id: &str,
-    source: &WidgetSource,
-    filters: &Value,
-    breakdown: &str,
+    request: &WidgetRequest,
     current: &FunnelPeriodRange,
     previous: Option<&FunnelPeriodRange>,
 ) -> String {
     let browser = crate::privacy::user_agent::browser_sql("browser_name");
     let referrer = crate::privacy::referrer::referrer_sql("referrer_host");
-    let expression = match breakdown {
+    let property = request
+        .breakdown_property
+        .as_deref()
+        .map(|key| {
+            format!(
+                "if({0} = '', '(not set)', {0})",
+                property_column_sql(key, "")
+            )
+        })
+        .unwrap_or_default();
+    let expression = match request.breakdown.as_str() {
         "browser" => browser.as_str(),
         "country" => "if(country = '', 'Unknown country', country)",
         "os" => "if(os_name = '', 'Unknown OS', os_name)",
@@ -72,6 +109,7 @@ pub(super) fn category_query(
         "medium" => "if(utm_medium = '', 'No medium', utm_medium)",
         "referrer" => referrer.as_str(),
         "page" => "if(url_path = '', '/', url_path)",
+        "property" => property.as_str(),
         _ => unreachable!("validated categorical breakdown"),
     };
     let span = FunnelPeriodRange {
@@ -79,7 +117,7 @@ pub(super) fn category_query(
         end: current.end,
         label: String::new(),
     };
-    let scope = chart_conditions(site_id, source, filters, &span);
+    let scope = chart_scope(site_id, request, &span);
     let condition = |period: &FunnelPeriodRange| {
         format!(
             "occurred_at >= {} AND occurred_at < {}",
@@ -88,7 +126,27 @@ pub(super) fn category_query(
         )
     };
     let prior = previous.map(&condition).unwrap_or_else(|| "0".into());
-    format!("SELECT {expression} AS group_label, toUInt64(countIf({})) AS current_value, toUInt64(countIf({prior})) AS previous_value FROM owleye_events WHERE {scope} GROUP BY group_label ORDER BY current_value + previous_value DESC, group_label ASC LIMIT 20 SETTINGS output_format_json_quote_64bit_integers = 0",condition(current))
+    let current_metric = chart_metric(&request.metric, &condition(current));
+    let previous_metric = chart_metric(&request.metric, &prior);
+    // Compute the tail from source rows, so distinct visitors/sessions are
+    // deduplicated across tail categories instead of adding category counts.
+    format!(
+        r#"WITH scoped AS (
+        SELECT occurred_at, visitor_id, anon_session_id, {expression} AS category FROM owleye_events WHERE {scope}
+    ), top_groups AS (
+        SELECT category FROM scoped GROUP BY category
+        ORDER BY {current_metric} + {previous_metric} DESC, category ASC LIMIT 20
+    )
+    SELECT if(is_other, 'Other', grouped_category) AS group_label,
+        toUInt64({current_metric}) AS current_value,
+        toUInt64({previous_metric}) AS previous_value
+    FROM (
+        SELECT occurred_at, visitor_id, anon_session_id, category, category NOT IN (SELECT category FROM top_groups) AS is_other FROM scoped
+    )
+    GROUP BY is_other, if(is_other, '', category) AS grouped_category
+    ORDER BY is_other ASC, current_value + previous_value DESC, group_label ASC
+    SETTINGS output_format_json_quote_64bit_integers = 0"#
+    )
 }
 
 pub(super) fn preview_bucket_label(
@@ -305,6 +363,11 @@ fn property_group_sql(group: &FunnelPropertyGroup, prefix: &str) -> String {
             .then(|| crate::privacy::user_agent::canonical_browser(raw))
             .flatten();
             let value = clickhouse_string(normalized.as_deref().unwrap_or(raw));
+            // Normalize only numeric JSON properties, leaving strings such as
+            // "001.50" untouched. This also makes numeric filter 1.50 match 1.5.
+            let value = if matches!(filter.operator.as_str(), "equals" | "not_equals") && !matches!(filter.key.as_str(), "campaign"|"utm_campaign"|"source"|"utm_source"|"medium"|"utm_medium"|"country"|"region"|"browser"|"os"|"device"|"page"|"path") {
+                format!("if(JSONType({prefix}payload_json, 'records', {}) = 'Double', ifNull(toString(toFloat64OrNull({value})), {value}), {value})",clickhouse_string(&filter.key))
+            } else { value };
             match filter.operator.as_str() {
                 "contains" => format!("positionCaseInsensitiveUTF8({column}, {value}) > 0"),
                 "exists" => format!("{column} != ''"),
@@ -339,8 +402,8 @@ fn property_column_sql(key: &str, prefix: &str) -> String {
         .map(|column| format!("{prefix}{column}"))
         .unwrap_or_else(|| {
             format!(
-                "JSONExtractString(JSONExtractRaw({prefix}payload_json, 'records'), {})",
-                clickhouse_string(key)
+                "multiIf(JSONType({prefix}payload_json, 'records', {key}) = 'String', JSONExtractString({prefix}payload_json, 'records', {key}), JSONType({prefix}payload_json, 'records', {key}) = 'Double', toString(JSONExtractFloat({prefix}payload_json, 'records', {key})), JSONType({prefix}payload_json, 'records', {key}) IN ('Int64', 'UInt64', 'Bool'), JSONExtractRaw({prefix}payload_json, 'records', {key}), '')",
+                key = clickhouse_string(key)
             )
         })
 }
@@ -453,5 +516,65 @@ mod tests {
                 "missing escaped value {escaped}: {sql}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod property_value_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires loopback OWLEYE_TEST_CLICKHOUSE_URL; synthetic property values only"]
+    async fn real_clickhouse_decimal_boolean_and_string_properties() {
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL").unwrap();
+        assert!(matches!(
+            reqwest::Url::parse(&url).unwrap().host_str(),
+            Some("localhost" | "127.0.0.1")
+        ));
+        let ch = crate::storage::clickhouse::ClickHouse::new(url).unwrap();
+        for (json_value, expected) in [
+            ("9.99", "9.99"),
+            ("1.50", "1.5"),
+            ("true", "true"),
+            ("false", "false"),
+            ("\"001.50\"", "001.50"),
+            ("null", ""),
+        ] {
+            let payload = clickhouse_string(&format!("{{\"records\":{{\"price\":{json_value}}}}}"));
+            let expression = property_column_sql("price", "");
+            let sql =
+                format!("SELECT {expression} AS value FROM (SELECT {payload} AS payload_json)");
+            let rows = ch.query_json_each_row::<Value>(&sql).await.unwrap();
+            assert_eq!(rows[0]["value"], expected, "{json_value}");
+        }
+        for value in ["1.5", "1.50"] {
+            let group = FunnelPropertyGroup {
+                logic: "and".into(),
+                filters: vec![super::super::FunnelPropertyFilter {
+                    id: "p".into(),
+                    key: "price".into(),
+                    operator: "equals".into(),
+                    value: Some(value.into()),
+                }],
+            };
+            let predicate = property_group_sql(&group, "");
+            let rows = ch.query_json_each_row::<Value>(&format!("SELECT count() AS count FROM (SELECT '{{\"records\":{{\"price\":1.50}}}}' AS payload_json) WHERE {predicate}")).await.unwrap();
+            assert_eq!(rows[0]["count"], 1, "{value}");
+        }
+        for value in ["true", "false"] {
+            let group = FunnelPropertyGroup {
+                logic: "and".into(),
+                filters: vec![super::super::FunnelPropertyFilter {
+                    id: "p".into(),
+                    key: "active".into(),
+                    operator: "equals".into(),
+                    value: Some(value.into()),
+                }],
+            };
+            let predicate = property_group_sql(&group, "");
+            let rows = ch.query_json_each_row::<Value>(&format!("SELECT count() AS count FROM (SELECT '{{\"records\":{{\"active\":{value}}}}}' AS payload_json) WHERE {predicate}")).await.unwrap();
+            assert_eq!(rows[0]["count"], 1, "{value}");
+        }
+        ch.shutdown().await;
     }
 }

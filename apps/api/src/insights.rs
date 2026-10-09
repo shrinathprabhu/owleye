@@ -770,11 +770,15 @@ mod tests {
         }
         execute(&client, &url, format!("CREATE DATABASE {db}")).await;
         url.query_pairs_mut().clear().append_pair("database", &db);
-        execute(&client, &url, "CREATE TABLE owleye_events (site_id String, occurred_at DateTime64(3,'UTC'), retention_active_until Nullable(DateTime64(3,'UTC')), event_type String, event_name String, duration_ms Nullable(UInt64), payload_json String, url_path String) ENGINE=MergeTree ORDER BY (site_id,occurred_at)".into()).await;
-        execute(&client, &url, "INSERT INTO owleye_events SELECT 'site', now64(3)-INTERVAL 1 HOUR, now64(3)+INTERVAL 10 DAY, 'performance', 'web_vital_lcp', 1200, '{}', '/pricing' FROM numbers(6)".into()).await;
-        execute(&client, &url, r#"INSERT INTO owleye_events VALUES ('site',now64(3)-INTERVAL 1 HOUR,now64(3)+INTERVAL 10 DAY,'performance','web_vital_cls',NULL,'{"value":0.125}','/pricing'), ('site',now64(3)-INTERVAL 1 HOUR,now64(3)+INTERVAL 10 DAY,'performance','web_vital_ttfb',250,'{}','/pricing'), ('other',now64(3)-INTERVAL 1 HOUR,now64(3)+INTERVAL 10 DAY,'performance','web_vital_lcp',9999,'{}','/private'), ('site',now64(3)-INTERVAL 1 HOUR,now64(3)-INTERVAL 1 MINUTE,'performance','web_vital_lcp',9999,'{}','/expired')"#.into()).await;
+        // Exercise the same tables and compatibility view as a deployed API.
+        let clickhouse = ClickHouse::new(url.to_string()).unwrap();
+        clickhouse.init().await.unwrap();
+        execute(&client, &url, "INSERT INTO owleye_events (site_id, occurred_at, retention_active_until, event_type, event_name, duration_ms, payload_json, url_path) SELECT 'site', now64(3)-INTERVAL 1 HOUR, now64(3)+INTERVAL 10 DAY, 'performance', 'web_vital_lcp', 1200, '{}', '/pricing' FROM numbers(3)".into()).await;
+        execute(&client, &url, "INSERT INTO owleye_performance (site_id, occurred_at, retention_active_until, event_type, event_name, duration_ms, payload_json, url_path) SELECT 'site', now64(3)-INTERVAL 1 HOUR, now64(3)+INTERVAL 10 DAY, 'performance', 'web_vital_lcp', 1200, '{}', '/pricing' FROM numbers(3)".into()).await;
+        execute(&client, &url, r#"INSERT INTO owleye_performance (site_id, occurred_at, retention_active_until, event_type, event_name, duration_ms, payload_json, url_path) VALUES ('site',now64(3)-INTERVAL 1 HOUR,now64(3)+INTERVAL 10 DAY,'performance','web_vital_cls',NULL,'{"value":0.125}','/pricing'), ('site',now64(3)-INTERVAL 1 HOUR,now64(3)+INTERVAL 10 DAY,'performance','web_vital_ttfb',250,'{}','/pricing'), ('other',now64(3)-INTERVAL 1 HOUR,now64(3)+INTERVAL 10 DAY,'performance','web_vital_lcp',9999,'{}','/private'), ('site',now64(3)-INTERVAL 1 HOUR,now64(3)-INTERVAL 1 MINUTE,'performance','web_vital_lcp',9999,'{}','/expired')"#.into()).await;
         // The real server may default to quoted UInt64 JSON; query settings must
         // make all three result shapes deserialize without narrowing counters.
+        clickhouse.shutdown().await;
         url.query_pairs_mut()
             .append_pair("output_format_json_quote_64bit_integers", "1");
         let clickhouse = ClickHouse::new(url.to_string()).unwrap();
@@ -824,6 +828,7 @@ mod tests {
             Ok::<_, anyhow::Error>(())
         }
         .await;
+        clickhouse.shutdown().await;
         execute(&client, &url, format!("DROP DATABASE {db}")).await;
         outcome.unwrap();
     }

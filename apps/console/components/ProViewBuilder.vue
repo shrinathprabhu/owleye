@@ -48,9 +48,21 @@ const chartLabels: Record<ProViewChartType, string> = {
 };
 
 const draft = ref(createDraft());
+watch(
+  () => draft.value.metric,
+  (metric) => {
+    if (
+      ["visitors", "sessions"].includes(metric ?? "events") &&
+      ["pie", "donut"].includes(draft.value.visualization)
+    )
+      draft.value.visualization = "bar";
+  },
+  { immediate: true },
+);
 // createDraft normalizes persisted definitions once. These computed values are
 // pure views, which keeps template reads from unexpectedly mutating the draft.
 const chartSource = computed(() => draft.value.source!);
+const chartProperties = computed(() => draft.value.property_filters!);
 const dateRange = computed(() => draft.value.date_range!);
 const funnelConfig = computed(() => draft.value.funnel!);
 const filteredSources = computed(() =>
@@ -84,7 +96,18 @@ const canQuery = computed(() => {
       ),
     );
   }
-  return Boolean(chartSource.value.id && chartSource.value.name.trim());
+  return (
+    Boolean(chartSource.value.id && chartSource.value.name.trim()) &&
+    (draft.value.breakdown !== "property" ||
+      /^[A-Za-z0-9_.-]{1,64}$/.test(
+        draft.value.breakdown_property?.trim() ?? "",
+      )) &&
+    chartProperties.value.filters.every(
+      (filter) =>
+        /^[A-Za-z0-9_.-]{1,64}$/.test(filter.key.trim()) &&
+        (filter.operator === "exists" || Boolean(filter.value?.trim())),
+    )
+  );
 });
 
 watch(
@@ -111,6 +134,8 @@ function createDraft() {
     ? cloneDefinition(props.initialDefinition)
     : defaultProViewDefinition(props.kind, source);
 
+  definition.metric ??= "events";
+  definition.property_filters ??= { filters: [], logic: "and" };
   definition.date_range = { ...widgetDateRange(definition) };
   definition.breakdown =
     definition.visualization === "map"
@@ -156,6 +181,16 @@ function updateBreakdown() {
     ["line", "scatter"].includes(draft.value.visualization)
   )
     draft.value.visualization = "bar";
+}
+
+function addChartPropertyFilter() {
+  if (chartProperties.value.filters.length >= 10) return;
+  chartProperties.value.filters.push({
+    id: draftId(),
+    key: "",
+    operator: "equals",
+    value: "",
+  });
 }
 
 function addFunnelStep() {
@@ -257,6 +292,22 @@ function normalizedDraft() {
   definition.title = definition.title.trim();
   definition.filters.page = definition.filters.page?.trim() || undefined;
   definition.filters.country = definition.filters.country?.trim() || undefined;
+  definition.breakdown_property =
+    definition.breakdown === "property"
+      ? definition.breakdown_property?.trim()
+      : undefined;
+  if (
+    definition.kind !== "chart" ||
+    !definition.property_filters?.filters.length
+  )
+    definition.property_filters = undefined;
+  else
+    definition.property_filters.filters =
+      definition.property_filters.filters.map((filter) => ({
+        ...filter,
+        key: filter.key.trim(),
+        value: filter.operator === "exists" ? undefined : filter.value?.trim(),
+      }));
   if (definition.kind === "funnel") {
     definition.visualization = "funnel";
     definition.source = undefined;
@@ -359,6 +410,19 @@ function draftId() {
           />
         </label>
 
+        <label>
+          <span>Metric</span>
+          <select v-model="draft.metric">
+            <option value="events">Occurrences</option>
+            <option value="visitors">Unique visitors</option>
+            <option value="sessions">Sessions</option>
+          </select>
+          <small class="field-note"
+            >Visitors and sessions are estimates for the selected event or rule,
+            counted separately in each group.</small
+          >
+        </label>
+
         <label class="wide-field">
           <span>Group by</span>
           <select v-model="draft.breakdown" @change="updateBreakdown">
@@ -371,17 +435,110 @@ function draftId() {
             </option>
           </select>
           <small class="field-note"
-            >Counts the selected event or rule. Category charts show up to 20
-            groups. Untagged campaigns appear as “No campaign”; missing
-            referrers appear as “Direct”.</small
+            >Measures the selected event or rule. Category charts show the top
+            20 groups and combine the remaining groups as “Other”. Untagged
+            campaigns appear as “No campaign”; missing referrers appear as
+            “Direct”.</small
           >
         </label>
+
+        <label v-if="draft.breakdown === 'property'" class="wide-field">
+          <span>Property key</span>
+          <input
+            v-model="draft.breakdown_property"
+            maxlength="64"
+            pattern="[A-Za-z0-9_.-]+"
+            placeholder="format"
+            required
+          />
+          <small class="field-note"
+            >Use a property sent with this event, such as format or plan.
+            Missing values appear as “(not set)”.</small
+          >
+        </label>
+        <details class="wide-field property-filters">
+          <summary>
+            Property filters
+            <small>
+              {{
+                chartProperties.filters.length
+                  ? `${chartProperties.filters.length} configured`
+                  : "optional"
+              }}
+            </small>
+          </summary>
+          <div class="property-filter-head">
+            <span>Match filters using</span>
+            <select
+              v-model="chartProperties.logic"
+              aria-label="Property filter logic"
+            >
+              <option value="and">All · AND</option>
+              <option value="or">Any · OR</option>
+            </select>
+          </div>
+          <div
+            v-for="(filter, filterIndex) in chartProperties.filters"
+            :key="filter.id"
+            class="property-filter-row"
+          >
+            <input
+              v-model="filter.key"
+              aria-label="Property key"
+              maxlength="64"
+              pattern="[A-Za-z0-9_.-]+"
+              placeholder="plan"
+              required
+            />
+            <select v-model="filter.operator" aria-label="Property operator">
+              <option value="equals">Equals</option>
+              <option value="not_equals">Does not equal</option>
+              <option value="contains">Contains</option>
+              <option value="exists">Exists</option>
+            </select>
+            <input
+              v-if="filter.operator !== 'exists'"
+              v-model="filter.value"
+              aria-label="Property value"
+              maxlength="512"
+              placeholder="pro"
+              required
+            />
+            <span v-else class="filter-no-value">No value needed</span>
+            <button
+              type="button"
+              aria-label="Remove property filter"
+              @click="chartProperties.filters.splice(filterIndex, 1)"
+            >
+              −
+            </button>
+          </div>
+          <button
+            class="add-filter"
+            :disabled="chartProperties.filters.length >= 10"
+            type="button"
+            @click="addChartPropertyFilter()"
+          >
+            + Add property filter
+          </button>
+          <p>
+            Use properties sent with the selected event, such as plan or
+            variant. Filters apply to both comparison periods.
+          </p>
+        </details>
 
         <fieldset class="wide-field chart-type-field">
           <legend>Chart shape</legend>
           <div class="chart-type-grid">
             <button
-              v-for="type in PRO_VIEW_CHART_TYPES"
+              v-for="type in PRO_VIEW_CHART_TYPES.filter(
+                (type) =>
+                  !(
+                    ['visitors', 'sessions'].includes(
+                      draft.metric ?? 'events',
+                    ) && ['pie', 'donut'].includes(type)
+                  ),
+              )"
               :key="type"
               :aria-pressed="draft.visualization === type"
               type="button"

@@ -381,14 +381,18 @@ impl LiveStatsQueries {
 // Unique visitor/session metrics are estimates by design. `uniqCombined64`
 // keeps memory bounded at analytics scale while remaining deterministic enough
 // for dashboards; access-control decisions must never use them.
+// Overview visitors represent people with a pageview in the selected range.
+// Passive beacons and custom-event-only activity belong to their own reports.
+pub(crate) const VISITORS_SQL: &str = "uniqCombined64If(visitor_id, event_type = 'pageview')";
+
 fn totals_query(filter: &str) -> String {
     format!(
         r#"
         SELECT
             toUInt64(countIf(event_type NOT IN ('performance', 'page_session'))) AS events,
             toUInt64(countIf(event_type = 'pageview')) AS pageviews,
-            toUInt64(uniqCombined64(visitor_id)) AS visitors,
-            toUInt64(uniqCombined64If(visitor_id, event_type = 'pageview')) AS pageview_visitors,
+            toUInt64({VISITORS_SQL}) AS visitors,
+            toUInt64({VISITORS_SQL}) AS pageview_visitors,
             toUInt64(uniqCombined64If(anon_session_id, event_type = 'pageview')) AS sessions,
             toUInt64(countIf(event_type = 'external')) AS external_events,
             toUInt64(countIf(event_type = 'rule')) AS rule_events,
@@ -407,7 +411,7 @@ fn timeseries_query(filter: &str, bucket: &str) -> String {
             toString({bucket}) AS date,
             toUInt64(countIf(event_type NOT IN ('performance', 'page_session'))) AS events,
             toUInt64(countIf(event_type = 'pageview')) AS pageviews,
-            toUInt64(uniqCombined64(visitor_id)) AS visitors
+            toUInt64({VISITORS_SQL}) AS visitors
         FROM owleye_events
         WHERE {filter}
         GROUP BY date
@@ -909,7 +913,7 @@ pub(crate) async fn public_overview(
         .iter()
         .map(|metric| {
             let expression = match metric {
-                Metric::Visitors => "uniqCombined64(visitor_id)",
+                Metric::Visitors => VISITORS_SQL,
                 Metric::Pageviews => "countIf(event_type = 'pageview')",
                 Metric::Events => "countIf(event_type NOT IN ('performance', 'page_session'))",
                 Metric::Sessions => "uniqCombined64If(anon_session_id, event_type = 'pageview')",
@@ -921,7 +925,7 @@ pub(crate) async fn public_overview(
     // Breakdown selection publishes both metrics, independently of headline
     // cards. Deduplicate the audience total across categories, as Console does.
     if !config.breakdowns.is_empty() {
-        metrics.push_str(", toUInt64(countIf(event_type = 'pageview')) AS audience_pageviews, toUInt64(uniqCombined64If(visitor_id, event_type = 'pageview')) AS audience_visitors");
+        metrics.push_str(&format!(", toUInt64(countIf(event_type = 'pageview')) AS audience_pageviews, toUInt64({VISITORS_SQL}) AS audience_visitors"));
     }
     let totals: Vec<Value> = clickhouse
         .query_public_overview(&format!(
@@ -1309,7 +1313,10 @@ mod tests {
             .contains("IN (SELECT name FROM top_regions)"));
         assert!(!queries.region_timeseries.contains("LIMIT 5 BY date"));
         assert!(queries.top_pages.contains("argMax(page_title"));
-        assert!(queries.totals.contains("uniqCombined64(visitor_id)"));
+        for sql in [&queries.totals, &queries.timeseries] {
+            assert!(sql.contains(&format!("toUInt64({VISITORS_SQL}) AS visitors")));
+            assert!(!sql.contains("uniqCombined64(visitor_id)"));
+        }
         assert!(queries
             .totals
             .contains("uniqCombined64If(anon_session_id, event_type = 'pageview')"));
@@ -1388,5 +1395,76 @@ mod counting_regressions {
                 Breakdown::Devices => assert_eq!(shared[0]["name"], "Desktop"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod visitor_scope_regressions {
+    use super::*;
+    use serde_json::Value;
+    async fn run(fixture: &str, sql: String) -> Vec<Value> {
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL")
+            .expect("set OWLEYE_TEST_CLICKHOUSE_URL to the disposable ClickHouse service");
+        let clickhouse = crate::storage::clickhouse::ClickHouse::new(url).unwrap();
+        let sql = sql.replace("FROM owleye_events", &format!("FROM {fixture}"));
+        clickhouse
+            .query_public_overview(&sql)
+            .await
+            .expect("synthetic ClickHouse SELECT succeeds")
+    }
+
+    #[tokio::test]
+    #[ignore = "requires OWLEYE_TEST_CLICKHOUSE_URL; synthetic SELECT queries only"]
+    async fn browser_referrer_and_session_counts_use_the_same_event_scope() {
+        let fixture = "(SELECT tupleElement(row,1) AS event_type, tupleElement(row,2) AS browser_name, tupleElement(row,3) AS visitor_id, tupleElement(row,4) AS anon_session_id, toNullable(toUInt64(1000)) AS duration_ms, tupleElement(row,5) AS referrer_host, 'action' AS event_name FROM (SELECT arrayJoin([('pageview','Chrome','u1','s1','x.com'),('pageview','Chromium','u1','s1','t.co'),('pageview','Google Chrome','u2','s2','chatgpt.com'),('page_session','Chrome','u1','duration-only',''),('performance','Chrome','u3','performance-only',''),('external','Chrome','u2','s2','')]) AS row))";
+
+        let totals = run(fixture, totals_query("1")).await;
+        assert_eq!(
+            totals[0]["pageviews"]
+                .as_u64()
+                .or_else(|| totals[0]["pageviews"].as_str().and_then(|n| n.parse().ok())),
+            Some(3)
+        );
+        let numeric = |row: &Value, key: &str| {
+            row[key]
+                .as_u64()
+                .or_else(|| row[key].as_str().and_then(|n| n.parse().ok()))
+                .unwrap()
+        };
+        assert_eq!(numeric(&totals[0], "events"), 4);
+        assert_eq!(numeric(&totals[0], "sessions"), 2);
+        assert_eq!(numeric(&totals[0], "visitors"), 2);
+        assert_eq!(numeric(&totals[0], "pageview_visitors"), 2);
+        let passive = run(fixture, totals_query("event_type != 'pageview'")).await;
+        assert_eq!(numeric(&passive[0], "visitors"), 0);
+        let daily = run(fixture, timeseries_query("1", "'2026-10-09'")).await;
+        assert_eq!(numeric(&daily[0], "visitors"), 2);
+        let browsers = run(
+            fixture,
+            dimension_query(
+                "1",
+                &crate::privacy::user_agent::browser_sql("browser_name"),
+            ),
+        )
+        .await;
+        assert_eq!(browsers.len(), 1);
+        assert_eq!(browsers[0]["name"], "Chrome");
+        assert_eq!(numeric(&browsers[0], "count"), 3);
+        assert_eq!(numeric(&browsers[0], "visitors"), 2);
+        let referrers = run(
+            fixture,
+            dimension_query(
+                "1",
+                &crate::privacy::referrer::referrer_sql("referrer_host"),
+            ),
+        )
+        .await;
+        assert_eq!(referrers.len(), 2);
+        assert_eq!(referrers[0]["name"], "X");
+        assert_eq!(numeric(&referrers[0], "count"), 2);
+        assert_eq!(numeric(&referrers[0], "visitors"), 1);
+        let events = run(fixture, event_names_query("1")).await;
+        assert_eq!(events.iter().map(|r| numeric(r, "count")).sum::<u64>(), 4);
+        assert!(events.iter().all(|r| r["event_type"] != "page_session"));
     }
 }

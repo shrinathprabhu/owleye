@@ -164,7 +164,7 @@ fn catalog_query() -> String {
                     AND {ACTIVE_ROW_PREDICATE}
             )
             GROUP BY kind, name, qualifier
-            HAVING uniqCombined64If(visitor_id, visitor_id != '') >= 5
+            HAVING kind IN ('event', 'property') OR uniqCombined64If(visitor_id, visitor_id != '') >= 5
         )
         WHERE position <= multiIf(kind IN ('event', 'city'), 30, kind IN ('campaign', 'property'), 20, 1)
         ORDER BY kind, position
@@ -174,9 +174,17 @@ fn catalog_query() -> String {
 
 pub(super) async fn discover(state: &AppState, site: &str) -> Result<Catalog, ApiError> {
     // Only names and property KEYS leave ClickHouse, never property values or identifiers.
-    // Low-volume categories are withheld; a missing entry is not proof of absence.
+    // Schema names/keys are discoverable at low volume; audience-bearing categories
+    // and report results still enforce privacy thresholds. No values are disclosed.
     let rows: Vec<CatalogEntry> = state.clickhouse.query_scoped_ai_report(&catalog_query(), &[("param_site", site)], state.settings.ai.clickhouse_url.as_deref()).await.map_err(|_| ApiError::ServiceUnavailable("The app's analytics catalog could not be loaded; no prompt allowance was consumed.".into()))?;
-    let truncated = rows.iter().filter(|r| r.kind != "coverage").count() >= 100;
+    let truncated = [
+        ("event", 30),
+        ("city", 30),
+        ("campaign", 20),
+        ("property", 20),
+    ]
+    .iter()
+    .any(|(kind, limit)| rows.iter().filter(|r| r.kind == *kind).count() >= *limit);
     Ok(Catalog {
         entries: rows
             .into_iter()
@@ -201,7 +209,7 @@ pub(super) fn validate_catalog(plan: &ReportPlan, catalog: &Catalog) -> Option<S
             .iter()
             .any(|e| e.kind == "event" && e.name == *name)
         {
-            return Some(format!("Which recorded event represents {name}? I couldn't verify that event in this app's available catalog. Rare events may be hidden by the privacy threshold."));
+            return Some(format!("Which recorded event represents {name}? I couldn't verify that event in this app's available catalog. The catalog is bounded to active retained data and may omit event names."));
         }
     }
     for (properties, events) in std::iter::once((&plan.properties, &plan.events))

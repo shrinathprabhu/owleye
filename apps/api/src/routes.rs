@@ -185,6 +185,7 @@ pub(crate) fn router_with_console(state: AppState, console_dir: String) -> Route
         )
         .route("/v1/account/export", get(account::export_account))
         .route("/v1/stats/overview", get(stats::stats_overview))
+        .route("/v1/stats/event-names", get(stats::stats_event_names))
         .route("/v1/sites/{siteId}/live", get(crate::live::overview))
         .route(
             "/v1/sites/{siteId}/uptime",

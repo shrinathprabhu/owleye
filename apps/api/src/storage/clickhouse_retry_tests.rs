@@ -164,6 +164,7 @@ async fn real_clickhouse_lost_acknowledgement_does_not_duplicate_rows() {
         for table in [EVENTS_TABLE, PERFORMANCE_TABLE] {
             let id = uuid::Uuid::new_v4();
             let body = format!("INSERT INTO {table} (event_id, site_id, event_type, occurred_at) SETTINGS async_insert=0 VALUES ('{id}', 'retry-site', 'pageview', now()), ('{id}', 'retry-site', 'pageview', now() - INTERVAL 1 MONTH)");
+            let body = Bytes::from(body);
             writer.insert_body_with_retries(body.clone(), &[Duration::ZERO; 3]).await?;
             let count = ch.query_json_each_row::<serde_json::Value>(&format!("SELECT toUInt32(count()) AS count FROM {table}")).await?;
             assert_eq!(count[0]["count"], 2, "retry must not duplicate either partition in {table}");
@@ -287,7 +288,7 @@ async fn full_queue_rejects_with_backpressure_without_waiting() {
     let clickhouse = ClickHouse {
         auth: None,
         client: Client::new(),
-        ingestion_fences: Arc::new(Mutex::new(HashMap::new())),
+        ingestion_fences: Arc::default(),
         insert_queue: sender,
         url: "http://127.0.0.1:1".to_owned(),
     };

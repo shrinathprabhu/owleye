@@ -337,3 +337,106 @@ fn demo_mode(site: &demo::DemoSiteDefinition) -> AiModeResponse {
         unlimited: true,
     }
 }
+
+#[cfg(test)]
+mod shared_regression_tests {
+    use super::{insights::Catalog, provider, report::*};
+    use serde_json::json;
+    #[test]
+    fn offline_recorded_custom_events_and_keys_plan_without_audience_counts() {
+        use super::insights::CatalogEntry;
+        let catalog = Catalog {
+            truncated: false,
+            entries: vec![
+                CatalogEntry {
+                    kind: "event".into(),
+                    name: "run_finished".into(),
+                    qualifier: String::new(),
+                },
+                CatalogEntry {
+                    kind: "property".into(),
+                    name: "model".into(),
+                    qualifier: "run_finished".into(),
+                },
+            ],
+        };
+        let response = json!({"report":"totals", "days":1, "offset_days":1, "metric":"visitors", "events":["run_finished"], "properties":[{"key":"model","value":"demo-model"}]}).to_string();
+        let plan = provider::validate_plan(
+            &response,
+            "How many unique users had run_finished (external) with model=demo-model yesterday?",
+            &catalog,
+        )
+        .unwrap();
+        assert_eq!(plan.report, Report::Totals);
+        assert_eq!(plan.events, vec!["run_finished"]);
+        assert_eq!(plan.metric, Metric::Visitors);
+        assert_eq!(plan.days, 1);
+        assert_eq!(plan.offset_days, 1);
+        assert!(plan.clarification.is_none());
+        let missing = provider::validate_plan(&response, "yesterday", &Catalog::default()).unwrap();
+        assert_eq!(missing.report, Report::Clarification);
+        assert!(missing
+            .clarification
+            .unwrap()
+            .contains("bounded to active retained data"));
+    }
+}
+
+#[cfg(test)]
+mod catalog_regression_tests {
+    use super::*;
+    use crate::storage::clickhouse::ClickHouse;
+
+    async fn sql(url: &str, query: &str) -> Result<(), ApiError> {
+        reqwest::Client::new()
+            .post(url)
+            .body(query.to_owned())
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(error.into()))?
+            .error_for_status()
+            .map_err(|error| ApiError::Internal(error.into()))?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires disposable loopback OWLEYE_TEST_CLICKHOUSE_URL"]
+    async fn real_clickhouse_rare_event_discovery_preserves_privacy_and_scope() {
+        let base = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL").unwrap();
+        let mut url = reqwest::Url::parse(&base).unwrap();
+        assert!(matches!(url.host_str(), Some("localhost" | "127.0.0.1")));
+        let database = format!("catalog_test_{}", uuid::Uuid::new_v4().simple());
+        sql(&base, &format!("CREATE DATABASE {database}"))
+            .await
+            .unwrap();
+        url.query_pairs_mut().append_pair("database", &database);
+        let mut state = crate::self_hosted_tests::test_state().await;
+        state.clickhouse = ClickHouse::new(url.to_string()).unwrap();
+        let result = async {
+            state.clickhouse.init().await?;
+            sql(url.as_str(), r#"INSERT INTO owleye_events (site_id,occurred_at,retention_active_until,event_type,event_name,payload_json,visitor_id,anon_session_id,city,country,utm_campaign) VALUES
+            ('owl_rare',now64(3)-INTERVAL 2 HOUR,now64(3)+INTERVAL 10 DAY,'external','run_finished','{"records":{"model":"demo-model","email":"person@example.test"}}','one-visitor','one-session','Rare City','IN','rare-campaign'),
+            ('owl_other',now64(3)-INTERVAL 2 HOUR,NULL,'external','other_tenant_event','{}','other-visitor','other-session','','',''),
+            ('owl_rare',now64(3)-INTERVAL 2 HOUR,now64(3)-INTERVAL 1 HOUR,'external','expired_event','{}','expired-visitor','expired-session','','','')"#).await?;
+            let catalog = insights::discover(&state, "owl_rare").await?;
+            assert!(catalog.entries.iter().any(|e| e.kind == "event" && e.name == "run_finished"));
+            assert!(catalog.entries.iter().any(|e| e.kind == "property" && e.name == "model" && e.qualifier == "run_finished"));
+            let serialized = serde_json::to_string(&catalog).unwrap();
+            for hidden in ["one-visitor", "one-session", "demo-model", "email", "Rare City", "rare-campaign", "other_tenant_event", "expired_event"] {
+                assert!(!serialized.contains(hidden), "disclosed {hidden}");
+            }
+            let evidence = report::execute(&state, "owl_rare", report::ReportPlan {
+                days: 1, events: vec!["run_finished".into()],
+                properties: vec![insights::PropertyFilter {key:"model".into(),value:"demo-model".into()}],
+                ..Default::default()
+            }).await?;
+            assert!(evidence.rows.is_empty(), "schema discovery must not release a small property audience");
+            Ok::<(), ApiError>(())
+        }.await;
+        state.clickhouse.shutdown().await;
+        sql(&base, &format!("DROP DATABASE {database} SYNC"))
+            .await
+            .unwrap();
+        result.unwrap();
+    }
+}

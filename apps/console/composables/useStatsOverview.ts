@@ -41,6 +41,7 @@ export function useStatsOverview(options: StatsOverviewOptions) {
   const prefetchControllers = new Map<string, AbortController>();
 
   let foregroundController: AbortController | undefined;
+  let foregroundRequest: { key: string; promise: Promise<void> } | undefined;
   let prefetchTimer: ReturnType<typeof setTimeout> | undefined;
   let requestVersion = 0;
 
@@ -54,14 +55,37 @@ export function useStatsOverview(options: StatsOverviewOptions) {
   });
 
   onBeforeUnmount(() => {
+    requestVersion += 1;
+    foregroundRequest = undefined;
     foregroundController?.abort();
     for (const controller of prefetchControllers.values()) controller.abort();
     if (prefetchTimer) clearTimeout(prefetchTimer);
   });
 
-  async function refreshStats(force = false) {
+  function refreshStats(force = false): Promise<void> {
+    const key = cacheKey(
+      options.siteId.value.trim(),
+      options.days.value,
+      options.dates?.value,
+    );
+    // Mount and the site watcher can request the same range together. Join it
+    // without aborting/restarting the API's ClickHouse work. Explicit refreshes
+    // and changes of site/range still replace the current request.
+    if (!force && foregroundRequest?.key === key)
+      return foregroundRequest.promise;
+    const request = { key, promise: loadStats(force) };
+    foregroundRequest = request;
+    const clear = () => {
+      if (foregroundRequest === request) foregroundRequest = undefined;
+    };
+    void request.promise.then(clear, clear);
+    return request.promise;
+  }
+
+  async function loadStats(force: boolean) {
     const requestedSiteId = options.siteId.value.trim();
     if (!requestedSiteId) {
+      requestVersion += 1;
       foregroundController?.abort();
       stats.value = null;
       statsError.value = "Enter a site ID before loading analytics.";
@@ -125,6 +149,7 @@ export function useStatsOverview(options: StatsOverviewOptions) {
 
   function resetStats() {
     requestVersion += 1;
+    foregroundRequest = undefined;
     foregroundController?.abort();
     foregroundController = undefined;
     for (const controller of prefetchControllers.values()) controller.abort();

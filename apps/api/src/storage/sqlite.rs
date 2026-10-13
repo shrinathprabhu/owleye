@@ -2,7 +2,7 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
     Row, SqlitePool,
 };
-use std::{str::FromStr, time::Duration};
+use std::{collections::BTreeMap, str::FromStr, time::Duration};
 
 pub async fn connect(sqlite_url: &str) -> anyhow::Result<SqlitePool> {
     let options = SqliteConnectOptions::from_str(sqlite_url)?
@@ -39,9 +39,8 @@ pub async fn connect(sqlite_url: &str) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
-/// Update the small SQLite event catalog in one transaction after ClickHouse
-/// accepts an ingestion batch. The catalog is advisory metadata, but batching
-/// avoids turning a 100-event SDK request into 100 SQLite commits.
+/// Atomically update the advisory catalog after ClickHouse accepts a batch.
+/// A single upsert is already atomic; multiple groups share one transaction.
 pub async fn record_event_catalog_batch(
     pool: &SqlitePool,
     events: &[CatalogEvent<'_>],
@@ -49,11 +48,91 @@ pub async fn record_event_catalog_batch(
     if events.is_empty() {
         return Ok(());
     }
+    if let [event] = events {
+        catalog_upsert(
+            event.site_id,
+            event.event_type,
+            event.event_name,
+            event.occurred_at,
+            event.occurred_at,
+            1,
+        )
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
 
-    let mut transaction = pool.begin().await?;
+    // Fold before taking the SQLite writer. Preserve the same lexical timestamp
+    // ordering as SQLite MIN/MAX, including out-of-order events across batches.
+    let mut groups = BTreeMap::new();
     for event in events {
-        sqlx::query(
-            r#"
+        let group = groups
+            .entry((event.site_id, event.event_type, event.event_name))
+            .or_insert((event.occurred_at, event.occurred_at, 0_i64));
+        group.0 = group.0.min(event.occurred_at);
+        group.1 = group.1.max(event.occurred_at);
+        group.2 += 1;
+    }
+
+    if groups.len() == 1 {
+        for ((site, kind, name), (first, last, count)) in groups {
+            catalog_upsert(site, kind, name, first, last, count)
+                .execute(pool)
+                .await?;
+        }
+    } else {
+        // At most 600 bindings per statement (below even SQLite's legacy 999
+        // limit). Normal SDK batches fit in one atomic statement. Larger callers
+        // keep all chunks inside one transaction rather than committing a prefix.
+        const GROUPS_PER_STATEMENT: usize = 100;
+        let mut transaction = if groups.len() > GROUPS_PER_STATEMENT {
+            Some(pool.begin().await?)
+        } else {
+            None
+        };
+        let mut groups = groups.into_iter().peekable();
+        while groups.peek().is_some() {
+            let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+                "INSERT INTO site_event_catalog(site_id,event_type,event_name,first_seen_at,last_seen_at,total_seen) ",
+            );
+            query.push_values(
+                groups.by_ref().take(GROUPS_PER_STATEMENT),
+                |mut row, ((site, kind, name), (first, last, count))| {
+                    row.push_bind(site)
+                        .push_bind(kind)
+                        .push_bind(name)
+                        .push_bind(first)
+                        .push_bind(last)
+                        .push_bind(count);
+                },
+            );
+            query.push(" ON CONFLICT(site_id,event_type,event_name) DO UPDATE SET first_seen_at=MIN(site_event_catalog.first_seen_at,excluded.first_seen_at),last_seen_at=MAX(site_event_catalog.last_seen_at,excluded.last_seen_at),total_seen=site_event_catalog.total_seen+excluded.total_seen");
+            // Do not fill each connection's statement cache with every possible
+            // batch length; the fixed single-group statement remains cached.
+            let query = query.build().persistent(false);
+            if let Some(transaction) = &mut transaction {
+                query.execute(&mut **transaction).await?;
+            } else {
+                query.execute(pool).await?;
+            }
+        }
+        if let Some(transaction) = transaction {
+            transaction.commit().await?;
+        }
+    }
+    Ok(())
+}
+
+fn catalog_upsert<'a>(
+    site_id: &'a str,
+    event_type: &'a str,
+    event_name: &'a str,
+    first_seen: &'a str,
+    last_seen: &'a str,
+    count: i64,
+) -> sqlx::query::Query<'a, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'a>> {
+    sqlx::query(
+        r#"
         INSERT INTO site_event_catalog (
             site_id,
             event_type,
@@ -62,25 +141,20 @@ pub async fn record_event_catalog_batch(
             last_seen_at,
             total_seen
         )
-        VALUES (?, ?, ?, ?, ?, 1)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(site_id, event_type, event_name)
         DO UPDATE SET
             first_seen_at = MIN(site_event_catalog.first_seen_at, excluded.first_seen_at),
             last_seen_at = MAX(site_event_catalog.last_seen_at, excluded.last_seen_at),
-            total_seen = site_event_catalog.total_seen + 1
+            total_seen = site_event_catalog.total_seen + excluded.total_seen
         "#,
-        )
-        .bind(event.site_id)
-        .bind(event.event_type)
-        .bind(event.event_name)
-        .bind(event.occurred_at)
-        .bind(event.occurred_at)
-        .execute(&mut *transaction)
-        .await?;
-    }
-    transaction.commit().await?;
-
-    Ok(())
+    )
+    .bind(site_id)
+    .bind(event_type)
+    .bind(event_name)
+    .bind(first_seen)
+    .bind(last_seen)
+    .bind(count)
 }
 
 pub struct CatalogEvent<'a> {
@@ -1180,3 +1254,132 @@ const SQLITE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_retention_jobs_due ON retention_jobs(status, next_attempt_at, lock_expires_at, priority DESC)",
     "CREATE INDEX IF NOT EXISTS idx_retention_jobs_site ON retention_jobs(site_id, status, kind)",
 ];
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    #[tokio::test]
+    async fn catalog_large_batches_preserve_atomicity_across_statement_chunks() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        let names = (0..250)
+            .map(|i| format!("event-{i:03}"))
+            .collect::<Vec<_>>();
+        let mut events = names
+            .iter()
+            .map(|event_name| CatalogEvent {
+                site_id: "large",
+                event_type: "external",
+                event_name,
+                occurred_at: "2026-10-13",
+            })
+            .collect::<Vec<_>>();
+        record_event_catalog_batch(&pool, &events).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT SUM(total_seen) FROM site_event_catalog")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 250);
+        sqlx::query("CREATE TRIGGER reject_catalog BEFORE INSERT ON site_event_catalog WHEN NEW.event_name='zz-reject' BEGIN SELECT RAISE(ABORT,'test rejection'); END").execute(&pool).await.unwrap();
+        events.push(CatalogEvent {
+            site_id: "large",
+            event_type: "external",
+            event_name: "zz-reject",
+            occurred_at: "2026-10-13",
+        });
+        assert!(record_event_catalog_batch(&pool, &events).await.is_err());
+        let count: i64 = sqlx::query_scalar("SELECT SUM(total_seen) FROM site_event_catalog")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            count, 250,
+            "later chunk failures must roll back earlier chunks"
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_folding_preserves_counts_timestamps_and_group_boundaries() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        for events in [
+            vec![
+                ("a", "external", "signup", "3"),
+                ("a", "external", "signup", "2"),
+                ("a", "rule", "signup", "4"),
+                ("b", "external", "signup", "5"),
+            ],
+            vec![
+                ("a", "external", "signup", "1"),
+                ("a", "external", "signup", "6"),
+                ("a", "external", "other", "7"),
+            ],
+        ] {
+            let batch = events
+                .iter()
+                .map(
+                    |&(site_id, event_type, event_name, occurred_at)| CatalogEvent {
+                        site_id,
+                        event_type,
+                        event_name,
+                        occurred_at,
+                    },
+                )
+                .collect::<Vec<_>>();
+            record_event_catalog_batch(&pool, &batch).await.unwrap();
+        }
+        record_event_catalog_batch(&pool, &[]).await.unwrap();
+        let rows: Vec<(String, String, String, String, String, i64)> = sqlx::query_as("SELECT site_id,event_type,event_name,first_seen_at,last_seen_at,total_seen FROM site_event_catalog ORDER BY site_id,event_type,event_name").fetch_all(&pool).await.unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "a".into(),
+                    "external".into(),
+                    "other".into(),
+                    "7".into(),
+                    "7".into(),
+                    1
+                ),
+                (
+                    "a".into(),
+                    "external".into(),
+                    "signup".into(),
+                    "1".into(),
+                    "6".into(),
+                    4
+                ),
+                (
+                    "a".into(),
+                    "rule".into(),
+                    "signup".into(),
+                    "4".into(),
+                    "4".into(),
+                    1
+                ),
+                (
+                    "b".into(),
+                    "external".into(),
+                    "signup".into(),
+                    "5".into(),
+                    "5".into(),
+                    1
+                ),
+            ]
+        );
+        // Failure half-way through a folded batch still rolls back every group.
+        sqlx::query("CREATE TRIGGER reject_catalog BEFORE INSERT ON site_event_catalog WHEN NEW.event_name='reject' BEGIN SELECT RAISE(ABORT,'test rejection'); END").execute(&pool).await.unwrap();
+        let batch = ["other", "reject"].map(|event_name| CatalogEvent {
+            site_id: "a",
+            event_type: "external",
+            event_name,
+            occurred_at: "8",
+        });
+        assert!(record_event_catalog_batch(&pool, &batch).await.is_err());
+        let count: i64 = sqlx::query_scalar(
+            "SELECT total_seen FROM site_event_catalog WHERE event_name='other'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+    }
+}

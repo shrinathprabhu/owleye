@@ -131,3 +131,27 @@ test("ECharts keeps full extent when changing duration, including after manual z
     chart.dispose();
   }
 });
+
+test("last 24 hours requests hourly rolling bounds without changing custom one-day ranges", () => {
+  assert.deepEqual(analyticsQuery("site", 1), {
+    site_id: "site",
+    days: 1,
+    hours: 24,
+    group_by: "hour",
+  });
+  const dates = { start_date: "2026-10-13", end_date: "2026-10-13" };
+  assert.deepEqual(analyticsQuery("site", 1, dates), {
+    site_id: "site",
+    days: 1,
+    ...dates,
+    group_by: "day",
+  });
+  assert.equal(
+    trafficPeriodLabel("2026-10-13T00:37:12Z", "hour", true),
+    "00:37",
+  );
+  assert.equal(
+    trafficPeriodLabel("2026-10-13T00:37:12Z", "hour"),
+    "13 Oct, 00:37 UTC",
+  );
+});

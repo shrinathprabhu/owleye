@@ -446,3 +446,95 @@ async fn local_admin_recovery_revokes_sessions_and_never_promotes_users() {
     .await;
     assert_eq!(old_session["authenticated"], false);
 }
+
+#[tokio::test]
+async fn event_catalog_is_one_live_scoped_query_and_rechecks_membership() {
+    use std::sync::Mutex;
+    let queries = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured = queries.clone();
+    let service = axum::Router::new().route(
+        "/",
+        axum::routing::post(move |body: String| {
+            captured.lock().unwrap().push(body);
+            async { "{\"event_type\":\"external\",\"event_name\":\"signup\",\"count\":3}\n" }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut state = test_state().await;
+    state.clickhouse =
+        ClickHouse::new(format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, service).await.unwrap() });
+    sqlx::query("INSERT INTO users(id,email) VALUES ('catalog-viewer','catalog@example.test')")
+        .execute(&state.sqlite)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO sites(id,tracking_id,name,domain) VALUES ('catalog-site','owl_catalog','Catalog','example.test')",
+    )
+    .execute(&state.sqlite)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO site_memberships(site_id,user_id,role) VALUES ('catalog-site','catalog-viewer','read_only')").execute(&state.sqlite).await.unwrap();
+    let cookie = crate::auth::create_test_session_cookie(&state, "catalog-viewer").await;
+    let app = crate::routes::router(state.clone());
+    let path = "/v1/stats/event-names?site_id=owl_catalog&days=30";
+    let anonymous = request(&app, "GET", path, "", json!({}), "http://localhost:8527").await;
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+    let response = request(
+        &app,
+        "GET",
+        path,
+        &cookie,
+        json!({}),
+        "http://localhost:8527",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!([{"event_type":"external","event_name":"signup","count":3}])
+    );
+    {
+        let queries = queries.lock().unwrap();
+        assert_eq!(queries.len(), 1);
+        assert!(queries[0].contains("site_id = 'owl_catalog'"));
+        assert!(queries[0].contains(crate::retention::ACTIVE_ROW_PREDICATE));
+        assert!(queries[0].contains("FROM owleye_all_events"));
+        assert!(queries[0].contains("LIMIT 20"));
+    }
+    let invalid = request(
+        &app,
+        "GET",
+        "/v1/stats/event-names?site_id=owl_catalog&start_date=bad&end_date=bad",
+        &cookie,
+        json!({}),
+        "http://localhost:8527",
+    )
+    .await;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    sqlx::query("DELETE FROM site_memberships WHERE site_id='catalog-site'")
+        .execute(&state.sqlite)
+        .await
+        .unwrap();
+    let denied = request(
+        &app,
+        "GET",
+        path,
+        &cookie,
+        json!({}),
+        "http://localhost:8527",
+    )
+    .await;
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        queries.lock().unwrap().len(),
+        1,
+        "denied and invalid requests must not query ClickHouse"
+    );
+    server.abort();
+}

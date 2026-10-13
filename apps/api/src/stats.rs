@@ -3,7 +3,7 @@ use axum::{
     http::HeaderMap,
     Json,
 };
-use chrono::{Datelike, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -27,6 +27,7 @@ const REGION_NAME_SQL: &str =
 pub struct StatsQuery {
     #[serde(default)]
     days: Option<u16>,
+    hours: Option<u16>,
     site_id: String,
     start_date: Option<String>,
     end_date: Option<String>,
@@ -37,6 +38,7 @@ pub struct StatsQuery {
 #[derive(Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 enum StatsGrouping {
+    Hour,
     #[default]
     Day,
     Week,
@@ -46,6 +48,7 @@ enum StatsGrouping {
 impl StatsGrouping {
     fn as_str(&self) -> &'static str {
         match self {
+            Self::Hour => "hour",
             Self::Day => "day",
             Self::Week => "week",
             Self::Month => "month",
@@ -55,11 +58,54 @@ impl StatsGrouping {
 
 #[derive(Debug, Clone, Copy)]
 struct StatsRange {
+    rolling_end: Option<DateTime<Utc>>,
     start: NaiveDate,
     end: NaiveDate,
 }
 
 impl StatsRange {
+    fn resolve_at(query: &StatsQuery, now: DateTime<Utc>) -> Result<Self, ApiError> {
+        if let Some(hours) = query.hours {
+            if hours != 24
+                || query.start_date.is_some()
+                || query.end_date.is_some()
+                || query.days.is_some_and(|days| days != 1)
+                || query.group_by != StatsGrouping::Hour
+            {
+                return Err(ApiError::BadRequest(
+                    "Use hours=24 with group_by=hour and no custom dates".into(),
+                ));
+            }
+            let end = now.with_nanosecond(0).expect("valid second");
+            return Ok(Self {
+                start: (end - Duration::hours(24)).date_naive(),
+                end: end.date_naive(),
+                rolling_end: Some(end),
+            });
+        }
+        if query.group_by == StatsGrouping::Hour {
+            return Err(ApiError::BadRequest(
+                "Hourly overview requires hours=24".into(),
+            ));
+        }
+        Self::resolve(query, now.date_naive())
+    }
+
+    fn bounds(self) -> (String, String) {
+        match self.rolling_end {
+            Some(end) => (
+                (end - Duration::hours(24)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                end.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            ),
+            None => (self.start.to_string(), self.end.to_string()),
+        }
+    }
+
+    fn hour_bucket(self) -> String {
+        let (start, _) = self.bounds();
+        format!("formatDateTime(toStartOfInterval(occurred_at, INTERVAL 1 HOUR, parseDateTime64BestEffort('{}', 3, 'UTC'), 'UTC'), '%Y-%m-%dT%H:%i:%SZ', 'UTC')", start)
+    }
+
     fn resolve(query: &StatsQuery, today: NaiveDate) -> Result<Self, ApiError> {
         let range = match (&query.start_date, &query.end_date) {
             (None, None) => Self::recent(
@@ -77,6 +123,7 @@ impl StatsRange {
                         .ok_or_else(|| ApiError::BadRequest("Dates must use YYYY-MM-DD".to_owned()))
                 };
                 Self {
+                    rolling_end: None,
                     start: parse(start)?,
                     end: parse(end)?,
                 }
@@ -101,16 +148,24 @@ impl StatsRange {
 
     fn recent(days: u16, today: NaiveDate) -> Self {
         Self {
+            rolling_end: None,
             start: today - Duration::days(i64::from(days.saturating_sub(1))),
             end: today,
         }
     }
 
     fn days(self) -> u16 {
+        if self.rolling_end.is_some() {
+            return 1;
+        }
         ((self.end - self.start).num_days() + 1) as u16
     }
 
     fn filter(self, site_id: &str) -> String {
+        if self.rolling_end.is_some() {
+            let (start, end) = self.bounds();
+            return format!("site_id = {} AND occurred_at >= parseDateTimeBestEffort('{}', 'UTC') AND occurred_at < parseDateTimeBestEffort('{}', 'UTC') AND {}", clickhouse_string(site_id), start, end, ACTIVE_ROW_PREDICATE);
+        }
         format!("site_id = {} AND occurred_at >= toDateTime('{}', 'UTC') AND occurred_at < toDateTime('{}', 'UTC') + INTERVAL 1 DAY AND {}",
             clickhouse_string(site_id), self.start, self.end, ACTIVE_ROW_PREDICATE)
     }
@@ -130,6 +185,19 @@ impl StatsRange {
             .map(|point| (point.date.clone(), point))
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut result = Vec::new();
+        if let Some(end) = self.rolling_end {
+            for offset in 0..24 {
+                let date = (end - Duration::hours(24) + Duration::hours(offset))
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                result.push(by_date.remove(&date).unwrap_or(StatsTimeseriesPoint {
+                    date,
+                    events: 0,
+                    pageviews: 0,
+                    visitors: 0,
+                }));
+            }
+            return result;
+        }
         let mut previous = None;
         for offset in 0..self.days() {
             let bucket = self.bucket(self.start + Duration::days(i64::from(offset)), interval);
@@ -214,10 +282,36 @@ struct DimensionStats {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct EventNameStats {
+pub struct EventNameStats {
     count: u64,
     event_name: String,
     event_type: String,
+}
+
+/// The Pro View picker needs the same ranked catalog as overview, without its
+/// eleven unrelated aggregates. Authorization and retention filtering stay live.
+pub async fn stats_event_names(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<StatsQuery>,
+) -> Result<Json<Vec<EventNameStats>>, ApiError> {
+    let session = auth::authenticated_session(&state, &headers).await?;
+    let requested_site_id = normalize_site_id(&query.site_id)?;
+    let range = StatsRange::resolve_at(&query, Utc::now())?;
+    if auth::is_demo_session(&session) {
+        let site = demo::demo_site(&requested_site_id)
+            .ok_or_else(|| ApiError::Forbidden("You do not have access to this site".to_owned()))?;
+        return Ok(Json(
+            demo_overview_at(site, range.days(), range.end).event_names,
+        ));
+    }
+    let site = sites::resolve_site_for_user(&state.sqlite, &session.id, &requested_site_id).await?;
+    Ok(Json(
+        state
+            .clickhouse
+            .query_json_each_row(&event_names_query(&range.filter(&site.tracking_id)))
+            .await?,
+    ))
 }
 
 pub async fn stats_overview(
@@ -227,11 +321,11 @@ pub async fn stats_overview(
 ) -> Result<Json<StatsOverviewResponse>, ApiError> {
     let session = auth::authenticated_session(&state, &headers).await?;
     let requested_site_id = normalize_site_id(&query.site_id)?;
-    let range = StatsRange::resolve(&query, Utc::now().date_naive())?;
+    let range = StatsRange::resolve_at(&query, Utc::now())?;
     if auth::is_demo_session(&session) {
         let site = demo::demo_site(&requested_site_id)
             .ok_or_else(|| ApiError::Forbidden("You do not have access to this site".to_owned()))?;
-        return Ok(Json(demo_overview_at(site, range.days(), range.end)));
+        return Ok(Json(demo_overview_range(site, range)));
     }
 
     let site = sites::resolve_site_for_user(&state.sqlite, &session.id, &requested_site_id).await?;
@@ -300,8 +394,8 @@ async fn live_overview_range(
         browsers,
         countries,
         days: range.days(),
-        start_date: range.start.to_string(),
-        end_date: range.end.to_string(),
+        start_date: range.bounds().0,
+        end_date: range.bounds().1,
         interval: interval.to_owned(),
         devices,
         event_names,
@@ -336,6 +430,13 @@ impl LiveStatsQueries {
     fn new(site_id: &str, range: StatsRange, interval: &str) -> Self {
         let filter = range.filter(site_id);
         let mut queries = Self::from_filter(&filter);
+        if range.rolling_end.is_some() {
+            let bucket = range.hour_bucket();
+            queries.timeseries = timeseries_query(&filter, &bucket);
+            queries.region_timeseries =
+                region_timeseries_query(&filter).replace("toDate(occurred_at)", &bucket);
+            return queries;
+        }
         let bucket = match interval {
             "week" => "toStartOfWeek(occurred_at, 1, 'UTC')",
             "month" => "toStartOfMonth(toTimeZone(occurred_at, 'UTC'))",
@@ -509,6 +610,28 @@ fn event_names_query(filter: &str) -> String {
 
 fn utm_campaigns_query(filter: &str) -> String {
     dimension_query(&format!("{filter} AND utm_campaign != ''"), "utm_campaign")
+}
+
+fn demo_overview_range(site: &DemoSiteDefinition, range: StatsRange) -> StatsOverviewResponse {
+    let mut overview = demo_overview_at(site, range.days(), range.end);
+    if range.rolling_end.is_some() {
+        let divide = |total: u64, index: usize| total / 24 + u64::from((index as u64) < total % 24);
+        overview.timeseries = range
+            .fill(vec![], "hour")
+            .into_iter()
+            .enumerate()
+            .map(|(index, mut point)| {
+                point.events = divide(overview.totals.events, index);
+                point.pageviews = divide(overview.totals.pageviews, index);
+                point.visitors = divide(overview.totals.visitors, index);
+                point
+            })
+            .collect();
+        overview.region_timeseries = demo_region_timeseries(site.profile, &overview.timeseries);
+        (overview.start_date, overview.end_date) = range.bounds();
+        overview.interval = "hour".into();
+    }
+    overview
 }
 
 fn demo_overview_at(
@@ -1092,7 +1215,13 @@ mod tests {
     #[ignore = "Read-only integration check: requires local ClickHouse and OWLEYE_TEST_STATS_SITE"]
     async fn local_clickhouse_range_aggregation() {
         let site = std::env::var("OWLEYE_TEST_STATS_SITE").expect("set a seeded local site ID");
-        let clickhouse = ClickHouse::new("http://localhost:8123".to_owned()).unwrap();
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL")
+            .unwrap_or_else(|_| "http://localhost:8123".to_owned());
+        assert!(matches!(
+            reqwest::Url::parse(&url).unwrap().host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]")
+        ));
+        let clickhouse = ClickHouse::new(url).unwrap();
         let fixture = "(SELECT tupleElement(row, 1) AS event_type, tupleElement(row, 2) AS browser_name, tupleElement(row, 3) AS visitor_id FROM (SELECT arrayJoin([('pageview','Chrome','u1'),('pageview','Chrome','u1'),('pageview','Firefox','u1'),('external','Safari','u2'),('performance','Edge','u3')]) AS row))";
         let sql = dimension_query("1", "browser_name")
             .replace("FROM owleye_events", &format!("FROM {fixture}"));
@@ -1163,6 +1292,7 @@ mod tests {
             );
         }
         let range = StatsRange {
+            rolling_end: None,
             start: end - Duration::days(67),
             end: end - Duration::days(7),
         };
@@ -1200,6 +1330,7 @@ mod tests {
             );
         }
         let query = |start: Option<&str>, end: Option<&str>| StatsQuery {
+            hours: None,
             days: None,
             site_id: "site".to_owned(),
             start_date: start.map(str::to_owned),
@@ -1239,6 +1370,115 @@ mod tests {
         assert!(!sql.contains("LIMIT"));
     }
 
+    #[tokio::test]
+    #[ignore = "requires loopback ClickHouse; synthetic read-only rows"]
+    async fn real_clickhouse_rolling_hourly_stats_preserve_boundaries_and_distincts() {
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL").unwrap();
+        assert!(matches!(
+            reqwest::Url::parse(&url).unwrap().host_str(),
+            Some("localhost" | "127.0.0.1" | "[::1]")
+        ));
+        let ch = ClickHouse::new(url).unwrap();
+        let now: DateTime<Utc> = "2026-10-13T14:37:12Z".parse().unwrap();
+        let query = serde_json::from_value(
+            serde_json::json!({"site_id":"hourly","hours":24,"group_by":"hour"}),
+        )
+        .unwrap();
+        let range = StatsRange::resolve_at(&query, now).unwrap();
+        // Include both exact edges, a later bucket, expired and other-tenant rows.
+        let fixture = r#"(SELECT if(number=5,'other','hourly') AS site_id, 'pageview' AS event_type, 'page_view' AS event_name, 'repeat-visitor' AS visitor_id, 'session' AS anon_session_id, CAST(NULL,'Nullable(UInt64)') AS duration_ms, 'IN' AS country, 'Region' AS region, if(number=4,now64(3)-INTERVAL 1 DAY,now64(3)+INTERVAL 1 DAY) AS retention_active_until, toDateTime64('2026-10-12 14:37:12',3,'UTC') + toIntervalSecond(multiIf(number=0,-1,number=1,0,number=2,3600,number=3,86400,0)) AS occurred_at FROM numbers(6))"#;
+        let queries = LiveStatsQueries::new("hourly", range, "hour");
+        let sql = |query: &str| query.replace("FROM owleye_events", &format!("FROM {fixture}"));
+        let totals = ch
+            .query_json_each_row::<StatsTotals>(&sql(&queries.totals))
+            .await
+            .unwrap();
+        assert_eq!(totals[0].pageviews, 2);
+        assert_eq!(totals[0].visitors, 1);
+        let points = ch
+            .query_json_each_row::<StatsTimeseriesPoint>(&sql(&queries.timeseries))
+            .await
+            .unwrap();
+        let points = range.fill(points, "hour");
+        assert_eq!(points.len(), 24);
+        assert_eq!(points[0].pageviews, 1);
+        assert_eq!(points[1].pageviews, 1);
+        assert_eq!(points[2].pageviews, 0);
+        let regions = ch
+            .query_json_each_row::<RegionTimeseriesPoint>(&sql(&queries.region_timeseries))
+            .await
+            .unwrap();
+        assert_eq!(regions.len(), 2);
+        assert_eq!(regions[0].date, points[0].date);
+        let events = ch
+            .query_json_each_row::<EventNameStats>(&sql(&queries.event_names))
+            .await
+            .unwrap();
+        assert_eq!(events[0].count, 2);
+        ch.shutdown().await;
+    }
+
+    #[test]
+    fn rolling_24_hours_is_exact_bounded_and_filled() {
+        let now: DateTime<Utc> = "2026-10-13T14:37:12Z".parse().unwrap();
+        let input = serde_json::json!({"site_id":"site", "hours":24, "days":1, "group_by":"hour"});
+        let query: StatsQuery = serde_json::from_value(input.clone()).unwrap();
+        let range = StatsRange::resolve_at(&query, now).unwrap();
+        assert_eq!(range.days(), 1);
+        assert_eq!(
+            range.bounds(),
+            ("2026-10-12T14:37:12Z".into(), "2026-10-13T14:37:12Z".into())
+        );
+        let points = range.fill(
+            vec![StatsTimeseriesPoint {
+                date: "2026-10-13T00:37:12Z".into(),
+                events: 3,
+                pageviews: 2,
+                visitors: 1,
+            }],
+            "hour",
+        );
+        assert_eq!(points.len(), 24);
+        assert_eq!(points[0].date, "2026-10-12T14:37:12Z");
+        assert_eq!(points[23].date, "2026-10-13T13:37:12Z");
+        assert_eq!(points.iter().map(|p| p.events).sum::<u64>(), 3);
+        let queries = LiveStatsQueries::new("site", range, "hour");
+        for sql in [
+            &queries.timeseries,
+            &queries.region_timeseries,
+            &queries.totals,
+            &queries.event_names,
+        ] {
+            assert!(sql.contains("site_id = 'site'"));
+            assert!(sql.contains("occurred_at >= parseDateTimeBestEffort('2026-10-12T14:37:12Z'"));
+            assert!(sql.contains("occurred_at < parseDateTimeBestEffort('2026-10-13T14:37:12Z'"));
+            assert!(sql.contains(ACTIVE_ROW_PREDICATE));
+        }
+        assert!(queries.timeseries.contains("INTERVAL 1 HOUR"));
+        assert!(queries.region_timeseries.contains("INTERVAL 1 HOUR"));
+        for patch in [
+            serde_json::json!({"hours":25}),
+            serde_json::json!({"days":30}),
+            serde_json::json!({"group_by":"day"}),
+            serde_json::json!({"start_date":"2026-10-13", "end_date":"2026-10-13"}),
+            serde_json::json!({"hours":null}),
+        ] {
+            let mut invalid = input.clone();
+            invalid
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert!(
+                StatsRange::resolve_at(&serde_json::from_value(invalid).unwrap(), now).is_err()
+            );
+        }
+        let calendar: StatsQuery = serde_json::from_value(serde_json::json!({"site_id":"site","days":1,"start_date":"2026-10-13","end_date":"2026-10-13"})).unwrap();
+        assert!(StatsRange::resolve_at(&calendar, now)
+            .unwrap()
+            .rolling_end
+            .is_none());
+    }
+
     #[test]
     fn requested_grouping_is_explicit_and_validated() {
         for (group, expected) in [
@@ -1254,6 +1494,7 @@ mod tests {
             let range = StatsRange::recent(7, NaiveDate::from_ymd_opt(2026, 9, 19).unwrap());
             let queries = LiveStatsQueries::new("site", range, query.group_by.as_str());
             let expression = match expected {
+                StatsGrouping::Hour => unreachable!(),
                 StatsGrouping::Day => "toDate(occurred_at, 'UTC')",
                 StatsGrouping::Week => "toStartOfWeek(occurred_at, 1, 'UTC')",
                 StatsGrouping::Month => "toStartOfMonth(toTimeZone(occurred_at, 'UTC'))",
@@ -1272,6 +1513,7 @@ mod tests {
     #[test]
     fn calendar_buckets_include_partial_edges_and_empty_periods() {
         let range = StatsRange {
+            rolling_end: None,
             start: NaiveDate::from_ymd_opt(2026, 1, 30).unwrap(),
             end: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
         };

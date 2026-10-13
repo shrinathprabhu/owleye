@@ -9,7 +9,7 @@ import {
 
 import { widgetRequestBody } from "~/types/pro-view";
 
-import type { StatsOverviewResponse } from "~/types/stats";
+import type { EventNameStat, StatsOverviewResponse } from "~/types/stats";
 import type {
   ProViewDashboard,
   ProViewDeleteScope,
@@ -22,6 +22,7 @@ import type {
 import type { WorkspaceSite } from "~/types/workspace";
 import {
   apiErrorMessage as requestError,
+  apiErrorStatus,
   isAbortError,
 } from "~/utils/apiError";
 import { routes } from "~/utils/routes";
@@ -670,10 +671,18 @@ export function useProViewWorkspace(options: ProViewWorkspaceOptions) {
   }
 
   async function loadEventCatalog(site: WorkspaceSite, signal: AbortSignal) {
-    const [stats, rules] = await Promise.all([
-      api<StatsOverviewResponse>("/v1/stats/overview", {
+    const [events, rules] = await Promise.all([
+      api<EventNameStat[]>("/v1/stats/event-names", {
         query: { days: 30, site_id: site.tracking_id },
         signal,
+      }).catch(async (error) => {
+        // Support a Console update arriving before the new API route.
+        if (isAbortError(error) || apiErrorStatus(error) !== 404) throw error;
+        const stats = await api<StatsOverviewResponse>("/v1/stats/overview", {
+          query: { days: 30, site_id: site.tracking_id },
+          signal,
+        });
+        return stats.event_names;
       }),
       api<RuleSummary[]>(routes.sites.rules(site.tracking_id), {
         signal,
@@ -684,7 +693,7 @@ export function useProViewWorkspace(options: ProViewWorkspaceOptions) {
     ]);
 
     return dedupeCatalog([
-      ...stats.event_names.map<ProViewEventOption>((event) => ({
+      ...events.map<ProViewEventOption>((event) => ({
         hasLocation: false,
         id: event.event_name,
         kind: "event",

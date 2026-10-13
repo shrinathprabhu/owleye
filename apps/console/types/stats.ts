@@ -47,7 +47,7 @@ export type StatsOverviewResponse = {
   days: number;
   start_date: string;
   end_date: string;
-  interval: "day" | "week" | "month";
+  interval: "hour" | "day" | "week" | "month";
   devices: DimensionStat[];
   event_names: EventNameStat[];
   operating_systems: DimensionStat[];

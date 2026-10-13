@@ -1,4 +1,4 @@
-export type AnalyticsInterval = "day" | "week" | "month";
+export type AnalyticsInterval = "hour" | "day" | "week" | "month";
 export type AnalyticsRange = {
   days: number;
   dates?: { start_date: string; end_date: string };
@@ -23,7 +23,9 @@ export function analyticsQuery(
   days: number,
   dates?: AnalyticsRange["dates"],
 ) {
-  return { site_id: siteId, days, ...dates, group_by: analyticsInterval(days) };
+  return days === 1 && !dates
+    ? { site_id: siteId, days, hours: 24, group_by: "hour" as const }
+    : { site_id: siteId, days, ...dates, group_by: analyticsInterval(days) };
 }
 
 export function customAnalyticsRange(
@@ -56,8 +58,20 @@ export function trafficPeriodLabel(
   interval: AnalyticsInterval,
   compact = false,
 ) {
-  const parsed = new Date(`${date}T00:00:00Z`);
+  const parsed = new Date(interval === "hour" ? date : `${date}T00:00:00Z`);
   if (!Number.isFinite(parsed.getTime())) return date;
+  if (interval === "hour")
+    return (
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "UTC",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+        ...(!compact
+          ? { month: "short" as const, day: "numeric" as const }
+          : {}),
+      }).format(parsed) + (!compact ? " UTC" : "")
+    );
   const label = new Intl.DateTimeFormat("en", {
     timeZone: "UTC",
     month: "short",

@@ -123,3 +123,18 @@ async fn real_clickhouse_property_metrics_deduplicate_other_and_compare() {
             .is_empty());
     }
 }
+
+#[test]
+fn custom_property_breakdowns_do_not_alias_built_in_dimensions() {
+    let mut request = chart();
+    request.breakdown_property = Some("country".into());
+    let now = Utc::now();
+    let range = FunnelPeriodRange {
+        start: now - Duration::days(1),
+        end: now,
+        label: "current".into(),
+    };
+    let sql = query::category_query("site", &request, &range, None);
+    assert!(sql.contains("JSONExtractString(payload_json, 'records', 'country')"));
+    assert!(!sql.contains("if(country = ''"));
+}

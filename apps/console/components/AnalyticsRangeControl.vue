@@ -29,10 +29,15 @@ const customRange = computed(() =>
 const grouping = computed(() => {
   const days = customRange.value?.days;
   return days
-    ? `${days} days · ${{ day: "Daily", week: "Weekly", month: "Monthly" }[analyticsInterval(days)]} chart`
+    ? `${days} days · ${{ hour: "Hourly", day: "Daily", week: "Weekly", month: "Monthly" }[analyticsInterval(days)]} chart`
     : "Choose dates within the last 365 days (including today).";
 });
 const options = [
+  {
+    label: "Last 24 hours",
+    value: 1,
+    description: "Hourly detail · rolling window",
+  },
   { label: "7 days", value: 7, description: "Daily detail" },
   { label: "30 days", value: 30, description: "Daily detail" },
   { label: "90 days", value: 90, description: "Weekly detail" },

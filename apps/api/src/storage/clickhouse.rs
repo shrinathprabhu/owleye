@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use axum::body::Bytes;
 use reqwest::{Client, RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use tokio::{
@@ -92,11 +93,33 @@ fn recover_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+#[derive(Default)]
+struct IngestionFences {
+    sites: HashMap<String, Arc<RwLock<()>>>,
+    accesses: usize,
+}
+
+impl IngestionFences {
+    fn get(&mut self, site_id: &str) -> Arc<RwLock<()>> {
+        self.accesses += 1;
+        if self.accesses == 256 {
+            self.accesses = 0;
+            // Callers and owned guards each hold a strong reference. Only
+            // remove locks nobody can still acquire or currently hold.
+            self.sites.retain(|_, fence| Arc::strong_count(fence) > 1);
+            if self.sites.capacity() > self.sites.len().max(256) * 4 {
+                self.sites.shrink_to(self.sites.len().max(256));
+            }
+        }
+        self.sites.entry(site_id.to_owned()).or_default().clone()
+    }
+}
+
 #[derive(Clone)]
 pub struct ClickHouse {
     auth: Option<ClickHouseAuth>,
     client: Client,
-    ingestion_fences: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
+    ingestion_fences: Arc<Mutex<IngestionFences>>,
     insert_queue: mpsc::Sender<InsertCommand>,
     url: String,
 }
@@ -128,7 +151,7 @@ impl ClickHouse {
         Ok(Self {
             auth,
             client,
-            ingestion_fences: Arc::new(Mutex::new(HashMap::new())),
+            ingestion_fences: Arc::default(),
             insert_queue,
             url,
         })
@@ -424,11 +447,7 @@ impl ClickHouse {
     }
 
     pub(crate) fn ingestion_fence(&self, site_id: &str) -> Arc<RwLock<()>> {
-        let mut fences = recover_mutex(&self.ingestion_fences);
-        fences
-            .entry(site_id.to_owned())
-            .or_insert_with(|| Arc::new(RwLock::new(())))
-            .clone()
+        recover_mutex(&self.ingestion_fences).get(site_id)
     }
 
     pub async fn shutdown(&self) {
@@ -752,20 +771,21 @@ impl ClickHouseWriter {
 
     async fn insert_events(&self, rows: &[EventRow]) -> anyhow::Result<()> {
         for performance in [false, true] {
-            let selected: Vec<_> = rows
-                .iter()
-                .filter(|row| (row.event_type == "performance") == performance)
-                .cloned()
-                .collect();
-            if selected.is_empty() {
-                continue;
-            }
             let table = if performance {
                 PERFORMANCE_TABLE
             } else {
                 EVENTS_TABLE
             };
-            let body = build_insert_body_for(&selected, table)?;
+            let body = {
+                let mut selected = rows
+                    .iter()
+                    .filter(|row| (row.event_type == "performance") == performance)
+                    .peekable();
+                if selected.peek().is_none() {
+                    continue;
+                }
+                build_insert_body_for(selected, table)?
+            };
             self.insert_body_with_retries(body, &INSERT_RETRY_DELAYS)
                 .await?;
         }
@@ -774,14 +794,14 @@ impl ClickHouseWriter {
 
     async fn insert_body_with_retries(
         &self,
-        body: String,
+        body: Bytes,
         delays: &[Duration; 3],
     ) -> anyhow::Result<()> {
         // A token identifies one table batch, not a visitor or a client request.
         // Serialize once so retries preserve row order, IDs, timestamps and data.
         let token = uuid::Uuid::new_v4().to_string();
         for attempt in 0..=delays.len() {
-            match self.insert_body(&body, &token).await {
+            match self.insert_body(body.clone(), &token).await {
                 Ok(()) => return Ok(()),
                 Err(error) => {
                     let retryable = error.downcast_ref::<reqwest::Error>().is_some_and(|error| {
@@ -808,14 +828,14 @@ impl ClickHouseWriter {
         unreachable!("the last attempt always returns")
     }
 
-    async fn insert_body(&self, body: &str, token: &str) -> anyhow::Result<()> {
+    async fn insert_body(&self, body: Bytes, token: &str) -> anyhow::Result<()> {
         let text = authenticated_post(&self.client, &self.url, self.auth.as_ref())
             .query(&[
                 ("wait_end_of_query", "1"),
                 ("insert_deduplicate", "1"),
                 ("insert_deduplication_token", token),
             ])
-            .body(body.to_owned())
+            .body(body)
             .send()
             .await?
             .error_for_status()?
@@ -833,7 +853,9 @@ impl ClickHouseWriter {
 
 #[cfg(test)]
 fn build_insert_body(rows: &[EventRow]) -> anyhow::Result<String> {
-    build_insert_body_for(rows, EVENTS_TABLE)
+    Ok(String::from_utf8(
+        build_insert_body_for(rows, EVENTS_TABLE)?.to_vec(),
+    )?)
 }
 
 // Internal query builders use the legacy name; the read source also includes
@@ -861,18 +883,22 @@ fn analytics_read_query(sql: &str) -> String {
     sql.replace("FROM owleye_events", "FROM owleye_all_events")
 }
 
-fn build_insert_body_for(rows: &[EventRow], table: &str) -> anyhow::Result<String> {
+fn build_insert_body_for<'a>(
+    rows: impl IntoIterator<Item = &'a EventRow>,
+    table: &str,
+) -> anyhow::Result<Bytes> {
     let mut body = format!(
         "INSERT INTO {table} ({}) SETTINGS async_insert=0 FORMAT JSONEachRow\n",
         EVENT_COLUMNS.join(", ")
-    );
+    )
+    .into_bytes();
 
     for row in rows {
-        body.push_str(&serde_json::to_string(row)?);
-        body.push('\n');
+        serde_json::to_writer(&mut body, row)?;
+        body.push(b'\n');
     }
 
-    Ok(body)
+    Ok(Bytes::from(body))
 }
 
 fn site_deletion_query(site_id: &str) -> String {
@@ -885,6 +911,50 @@ fn site_deletion_query(site_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn fence_cleanup_keeps_held_and_waiting_locks_and_reclaims_idle_sites() {
+        let mut fences = IngestionFences::default();
+        let held = fences.get("held").read_owned().await;
+        let waiting = fences.get("waiting");
+        let idle = Arc::downgrade(&fences.get("idle"));
+        for i in 0..1024 {
+            drop(fences.get(&format!("churn-{i}")));
+        }
+        assert!(idle.upgrade().is_none());
+        assert!(fences.sites.len() < 260);
+        assert!(Arc::ptr_eq(&waiting, &fences.get("waiting")));
+        assert!(fences.get("held").try_write_owned().is_err());
+        drop(held);
+        assert!(fences.get("held").try_write_owned().is_ok());
+    }
+
+    #[test]
+    fn borrowed_insert_encoding_matches_previous_wire_bytes() {
+        let mut rows = [event_row("first"), event_row("metric"), event_row("last")];
+        rows[1].event_type = "performance".into();
+        rows[2].payload_json = r#"{"label":"你好\n\"quoted\""}"#.into();
+        for (performance, table) in [(false, EVENTS_TABLE), (true, PERFORMANCE_TABLE)] {
+            let selected = rows
+                .iter()
+                .filter(|row| (row.event_type == "performance") == performance);
+            let body = build_insert_body_for(selected.clone(), table).unwrap();
+            let mut expected = format!(
+                "INSERT INTO {table} ({}) SETTINGS async_insert=0 FORMAT JSONEachRow\n",
+                EVENT_COLUMNS.join(", ")
+            );
+            for row in selected {
+                expected.push_str(&serde_json::to_string(row).unwrap());
+                expected.push('\n');
+            }
+            assert_eq!(body.as_ref(), expected.as_bytes());
+            assert_eq!(
+                body.as_ptr(),
+                body.clone().as_ptr(),
+                "retry clones must share the allocation"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn ingestion_fences_are_shared_per_site_and_isolated_between_sites() {

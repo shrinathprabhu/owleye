@@ -1,10 +1,12 @@
 use super::report::ReportPlan;
 use crate::ApiError;
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::OnceCell;
 
 #[derive(Clone)]
 pub struct AiSettings {
+    client: Arc<OnceCell<reqwest::Client>>,
     pub api_key: Option<String>,
     pub model: String,
     pub clickhouse_url: Option<String>,
@@ -14,6 +16,7 @@ pub struct AiSettings {
 impl Default for AiSettings {
     fn default() -> Self {
         Self {
+            client: Arc::default(),
             api_key: None,
             clickhouse_url: None,
             model: "z-ai/glm-5.2".into(),
@@ -23,6 +26,22 @@ impl Default for AiSettings {
     }
 }
 impl AiSettings {
+    // Shared by cloned AppState settings. Failed initialization remains retryable;
+    // request-specific credentials and bodies never live in the client defaults.
+    async fn client(&self) -> Result<&reqwest::Client, reqwest::Error> {
+        self.client
+            .get_or_try_init(|| async {
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .connect_timeout(Duration::from_secs(5))
+                    .timeout(Duration::from_secs(35))
+                    .pool_max_idle_per_host(4)
+                    .build()
+            })
+            .await
+    }
+
     pub fn from_env() -> anyhow::Result<Self> {
         let mut settings = Self {
             api_key: std::env::var("OPENROUTER_API_KEY")
@@ -78,13 +97,7 @@ async fn completion(
     let endpoint = "https://openrouter.ai/api/v1/chat/completions";
     #[cfg(test)]
     let endpoint = config.endpoint.as_deref().unwrap_or(endpoint);
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(35))
-        .build()
-        .map_err(|_| unavailable())?;
+    let client = config.client().await.map_err(|_| unavailable())?;
     let mut body = json!({
         "model": config.model, "messages": messages,
         "stream": false, "max_tokens": 2400, "temperature": 0,
@@ -168,7 +181,16 @@ pub(super) async fn plan_with_catalog(
             "output":{"type":"string","enum":["text","pdf"]}
         }, "required":["dataset","measure","report","days","offset_days","period","start_date","end_date","country","browser","device","os","cities","events","campaigns","properties","steps","clarification","chart","metric","output"]
     }))).await?;
-    let mut plan: ReportPlan = serde_json::from_str(&result).map_err(|_| unavailable())?;
+    validate_plan(&result, &prompt, catalog)
+}
+
+// Use the same validation in production and the offline regression corpus.
+pub(super) fn validate_plan(
+    result: &str,
+    prompt: &str,
+    catalog: &super::insights::Catalog,
+) -> Result<ReportPlan, ApiError> {
+    let mut plan: ReportPlan = serde_json::from_str(result).map_err(|_| unavailable())?;
     // A planner may attach a valid clarification while retaining its tentative report.
     // Asking the question always wins over executing an incomplete or guessed plan.
     if plan
@@ -190,9 +212,9 @@ pub(super) async fn plan_with_catalog(
     if plan.report == super::report::Report::Unsupported {
         return Err(ApiError::BadRequest("I can analyze this app's retained traffic, locations, events, properties and ordered conversions. Please ask an aggregate analytics question or specify the metric you want. No prompt allowance was consumed.".into()));
     }
-    super::report::apply_explicit_day_range(&prompt, &mut plan)?;
+    super::report::apply_explicit_day_range(prompt, &mut plan)?;
     plan.normalize()?;
-    super::report::apply_question_constraints(&prompt, &mut plan)?;
+    super::report::apply_question_constraints(prompt, &mut plan)?;
     if let Some(question) = super::insights::validate_catalog(&plan, catalog) {
         plan.report = super::report::Report::Clarification;
         plan.clarification = Some(question);
@@ -465,6 +487,20 @@ fn numbers_grounded(text: &str, evidence: &super::report::Evidence) -> bool {
 mod tests {
     use super::*;
     use crate::ai::report::{Chart, Evidence, Metric, Output};
+
+    #[tokio::test]
+    async fn offline_provider_clients_are_shared_across_settings_clones() {
+        let settings = AiSettings::default();
+        let clone = settings.clone();
+        let (first, second) = tokio::join!(settings.client(), clone.client());
+        assert!(std::ptr::eq(first.unwrap(), second.unwrap()));
+        // Independently configured runtimes do not share connection state.
+        let independent = AiSettings::default();
+        assert!(!std::ptr::eq(
+            settings.client().await.unwrap(),
+            independent.client().await.unwrap()
+        ));
+    }
     #[test]
     fn natural_answers_keep_verified_filters_and_period() {
         let evidence = Evidence {

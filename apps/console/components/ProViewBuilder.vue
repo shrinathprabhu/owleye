@@ -443,7 +443,7 @@ function draftId() {
         </label>
 
         <label v-if="draft.breakdown === 'property'" class="wide-field">
-          <span>Property key</span>
+          <span>Custom data property key</span>
           <input
             v-model="draft.breakdown_property"
             maxlength="64"
@@ -452,7 +452,8 @@ function draftId() {
             required
           />
           <small class="field-note"
-            >Use a property sent with this event, such as format or plan.
+            >Group by a key from your event’s custom data, such as model,
+            format, or status. String, number, and boolean values are categories.
             Missing values appear as “(not set)”.</small
           >
         </label>

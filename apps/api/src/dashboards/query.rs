@@ -94,7 +94,7 @@ pub(super) fn category_query(
         .map(|key| {
             format!(
                 "if({0} = '', '(not set)', {0})",
-                property_column_sql(key, "")
+                custom_property_column_sql(key, "")
             )
         })
         .unwrap_or_default();
@@ -400,12 +400,14 @@ fn property_column_sql(key: &str, prefix: &str) -> String {
     };
     column
         .map(|column| format!("{prefix}{column}"))
-        .unwrap_or_else(|| {
-            format!(
+        .unwrap_or_else(|| custom_property_column_sql(key, prefix))
+}
+
+fn custom_property_column_sql(key: &str, prefix: &str) -> String {
+    format!(
                 "multiIf(JSONType({prefix}payload_json, 'records', {key}) = 'String', JSONExtractString({prefix}payload_json, 'records', {key}), JSONType({prefix}payload_json, 'records', {key}) = 'Double', toString(JSONExtractFloat({prefix}payload_json, 'records', {key})), JSONType({prefix}payload_json, 'records', {key}) IN ('Int64', 'UInt64', 'Bool'), JSONExtractRaw({prefix}payload_json, 'records', {key}), '')",
                 key = clickhouse_string(key)
             )
-        })
 }
 
 pub(super) fn clickhouse_datetime(value: DateTime<Utc>) -> String {

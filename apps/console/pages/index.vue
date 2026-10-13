@@ -89,11 +89,23 @@ const canLoadStats = computed(
     !statsPending.value,
 );
 const loadedRangeDays = computed(() => stats.value?.days ?? rangeDays.value);
+const selectedRangeLabel = computed(() =>
+  rangeDays.value === 1 && !rangeDates.value
+    ? "last 24 hours"
+    : `${rangeDays.value} days`,
+);
+const loadedRangeLabel = computed(() =>
+  stats.value?.interval === "hour"
+    ? "Last 24 hours"
+    : `${loadedRangeDays.value} days`,
+);
 const rangeMetricCaption = computed(() =>
   statsPending.value && stats.value
-    ? `Updating to ${rangeDays.value} days…`
+    ? `Updating to ${selectedRangeLabel.value}…`
     : stats.value
-      ? `${stats.value.start_date} – ${stats.value.end_date} (UTC)`
+      ? stats.value.interval === "hour"
+        ? "Last 24 hours · hourly (UTC)"
+        : `${stats.value.start_date} – ${stats.value.end_date} (UTC)`
       : `Selected ${loadedRangeDays.value}-day range`,
 );
 
@@ -235,8 +247,8 @@ function metric(value: number | undefined, suffix = "") {
           <p>
             {{
               statsPending && stats
-                ? `Updating to ${rangeDays} days…`
-                : `${loadedRangeDays} days of privacy-preserving product analytics.`
+                ? `Updating to ${selectedRangeLabel}…`
+                : `${loadedRangeLabel} of privacy-preserving product analytics.`
             }}
           </p>
         </div>
@@ -389,7 +401,9 @@ function metric(value: number | undefined, suffix = "") {
             </div>
             <span>{{
               stats
-                ? `${stats.start_date} – ${stats.end_date} · ${{ day: "Daily", week: "Weekly", month: "Monthly" }[stats.interval ?? analyticsInterval(stats.days)]} (UTC)`
+                ? stats.interval === "hour"
+                  ? "Last 24 hours · Hourly (UTC)"
+                  : `${stats.start_date} – ${stats.end_date} · ${{ hour: "Hourly", day: "Daily", week: "Weekly", month: "Monthly" }[stats.interval ?? analyticsInterval(stats.days)]} (UTC)`
                 : `${rangeDays}-day range`
             }}</span>
           </div>

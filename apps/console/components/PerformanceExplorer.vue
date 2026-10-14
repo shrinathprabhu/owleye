@@ -94,11 +94,11 @@ const emptyDescription = computed(() =>
       </div>
       <label>
         <span>Range</span>
-        <select v-model.number="days" @change="load">
+        <ConsoleDropdown v-model.number="days" @change="load">
           <option :value="7">Last 7 days</option>
           <option :value="30">Last 30 days</option>
           <option :value="90">Last 90 days</option>
-        </select>
+        </ConsoleDropdown>
       </label>
     </div>
 

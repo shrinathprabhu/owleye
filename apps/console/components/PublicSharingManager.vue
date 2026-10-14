@@ -138,8 +138,12 @@ async function copy(url: string) {
           class="sharing-fields"
         >
           <label class="sharing-choice"
-            ><input v-model="draft.enabled" type="checkbox" /> Enable public
-            sharing</label
+            ><input
+              class="console-field"
+              v-model="draft.enabled"
+              type="checkbox"
+            />
+            Enable public sharing</label
           >
           <p class="sharing-note">
             Your app name and the selections below will be public. Turning this
@@ -153,6 +157,7 @@ async function copy(url: string) {
                 :key="key"
                 class="sharing-choice"
                 ><input
+                  class="console-field"
                   v-model="draft.metrics"
                   type="checkbox"
                   :value="key"
@@ -161,8 +166,11 @@ async function copy(url: string) {
             </div>
           </fieldset>
           <label class="sharing-choice"
-            ><input v-model="draft.traffic" type="checkbox" />Traffic chart for
-            the selected metrics</label
+            ><input
+              class="console-field"
+              v-model="draft.traffic"
+              type="checkbox"
+            />Traffic chart for the selected metrics</label
           >
           <fieldset>
             <legend>Breakdowns · page views and unique visitors</legend>
@@ -177,6 +185,7 @@ async function copy(url: string) {
                 :key="key"
                 class="sharing-choice"
                 ><input
+                  class="console-field"
                   v-model="draft.breakdowns"
                   type="checkbox"
                   :value="key"
@@ -185,14 +194,14 @@ async function copy(url: string) {
             </div>
           </fieldset>
           <label class="sharing-range"
-            >Maximum history<select
+            >Maximum history<ConsoleDropdown
               aria-label="Maximum history"
               v-model.number="draft.max_days"
             >
               <option :value="7">Last 7 days</option>
               <option :value="30">Last 30 days</option>
               <option :value="90">Last 90 days</option>
-            </select></label
+            </ConsoleDropdown></label
           >
           <fieldset>
             <legend>URL links · optional</legend>
@@ -205,6 +214,7 @@ async function copy(url: string) {
               :key="url"
               class="sharing-choice"
               ><input
+                class="console-field"
                 v-model="draft.urls"
                 type="checkbox"
                 :value="url"
@@ -245,6 +255,7 @@ async function copy(url: string) {
           <label
             >{{ link.label
             }}<input
+              class="console-field"
               :value="link.url"
               readonly
               @focus="($event.target as HTMLInputElement).select()" /></label

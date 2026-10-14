@@ -139,11 +139,15 @@ async function load() {
       >
         <label for="public-days"
           >Range
-          <select id="public-days" v-model.number="selectedDays" @change="load">
+          <ConsoleDropdown
+            id="public-days"
+            v-model.number="selectedDays"
+            @change="load"
+          >
             <option v-for="day in days" :key="day" :value="day">
               {{ day }} days · Daily detail
             </option>
-          </select>
+          </ConsoleDropdown>
         </label>
         <span>Only statistics shared by the app owner</span>
       </section>

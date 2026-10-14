@@ -50,6 +50,7 @@ async function verify() {
           method === "totp" ? "Authenticator code" : "Current password"
         }}</span
         ><input
+          class="console-field"
           v-model="code"
           :type="method === 'totp' ? 'text' : 'password'"
           :autocomplete="

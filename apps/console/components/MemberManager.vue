@@ -192,6 +192,7 @@ function initials(member: SiteMember) {
         <label>
           <span>Email</span>
           <input
+            class="console-field"
             v-model="email"
             autocomplete="email"
             :disabled="demo"

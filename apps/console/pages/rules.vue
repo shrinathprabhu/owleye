@@ -8,8 +8,14 @@ useHead({ title: "Tracking rules · OWLEYE" });
     eyebrow="No-code event capture"
     permission="rules_write"
     title="Rules"
-    v-slot="{ demo, site }"
+    v-slot="{ demo, site, apiBase }"
   >
+    <OptionalTrackingSetup
+      v-if="site"
+      kind="rules"
+      :site-id="site.tracking_id"
+      :api-base="apiBase"
+    />
     <RuleManager
       :read-only="demo"
       :site-id="site?.id"

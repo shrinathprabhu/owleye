@@ -32,6 +32,7 @@ export default defineNuxtConfig({
     "~/assets/css/main.css",
     "~/assets/css/management-features.css",
     "~/assets/css/responsive.css",
+    "~/assets/css/controls.css",
   ],
   ssr: false,
   nitro: { preset: "static" },

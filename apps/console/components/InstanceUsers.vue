@@ -78,6 +78,7 @@ async function update() {
       <label
         ><span>Email</span
         ><input
+          class="console-field"
           v-model="email"
           type="email"
           autocomplete="off"
@@ -85,6 +86,7 @@ async function update() {
       ><label
         ><span>Initial password</span
         ><input
+          class="console-field"
           v-model="password"
           type="password"
           autocomplete="new-password"
@@ -138,6 +140,7 @@ async function update() {
       <label v-if="operation === 'password'"
         ><span>New password</span
         ><input
+          class="console-field"
           v-model="reset"
           type="password"
           autocomplete="new-password"

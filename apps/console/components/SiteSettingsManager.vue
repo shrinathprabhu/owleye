@@ -186,6 +186,7 @@ async function deleteSite() {
             <label>
               <span>App name</span>
               <input
+                class="console-field"
                 v-model="name"
                 :disabled="demo || !settings.capabilities.rename_site"
                 maxlength="120"
@@ -195,6 +196,7 @@ async function deleteSite() {
             <label>
               <span>Tracking ID</span>
               <input
+                class="console-field"
                 :value="settings.site.tracking_id"
                 readonly
                 spellcheck="false"
@@ -202,11 +204,19 @@ async function deleteSite() {
             </label>
             <label>
               <span>Primary domain</span>
-              <input :value="settings.site.domain" readonly />
+              <input
+                class="console-field"
+                :value="settings.site.domain"
+                readonly
+              />
             </label>
             <label>
               <span>Timezone</span>
-              <input :value="settings.site.timezone" readonly />
+              <input
+                class="console-field"
+                :value="settings.site.timezone"
+                readonly
+              />
             </label>
           </div>
 
@@ -220,6 +230,7 @@ async function deleteSite() {
                 >
               </span>
               <input
+                class="console-field"
                 v-model="trackingPaused"
                 :disabled="demo || !settings.capabilities.pause_tracking"
                 type="checkbox"
@@ -249,7 +260,8 @@ async function deleteSite() {
               <div class="management-empty compact">
                 <strong>Unlimited retention</strong>
                 <p>
-                  Analytics are retained until you explicitly delete the app. Monitor server storage and keep backups.
+                  Analytics are retained until you explicitly delete the app.
+                  Monitor server storage and keep backups.
                 </p>
               </div>
             </div>
@@ -257,6 +269,7 @@ async function deleteSite() {
             <label>
               <span>Privacy contact email</span>
               <input
+                class="console-field"
                 v-model="privacyContactEmail"
                 autocomplete="email"
                 :disabled="demo"
@@ -276,8 +289,8 @@ async function deleteSite() {
             <span>
               <strong>Browser privacy signals</strong>
               <small>
-                The SDK stops tracking for Global Privacy Control by default.
-                Do Not Track is no longer used. The API does not filter events
+                The SDK stops tracking for Global Privacy Control by default. Do
+                Not Track is no longer used. The API does not filter events
                 based on either header.
               </small>
             </span>
@@ -298,8 +311,6 @@ async function deleteSite() {
       </p>
     </form>
 
-
-
     <div class="settings-app-grid">
       <article class="management-card danger-zone">
         <header class="management-card-header">
@@ -317,6 +328,7 @@ async function deleteSite() {
         <label>
           <span>Confirmation</span>
           <input
+            class="console-field"
             v-model="deleteConfirmation"
             :disabled="demo"
             autocomplete="off"

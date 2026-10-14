@@ -118,15 +118,15 @@ async function download() {
     <div v-if="options.length" class="ai-report-controls">
       <label
         >Chart
-        <select v-model="kind" aria-label="Chart type">
+        <ConsoleDropdown v-model="kind" aria-label="Chart type">
           <option v-for="option in options" :key="option" :value="option">
             {{ chartLabels[option] }}
           </option>
-        </select>
+        </ConsoleDropdown>
       </label>
       <label
         >Metric
-        <select v-model="metric" aria-label="Chart metric">
+        <ConsoleDropdown v-model="metric" aria-label="Chart metric">
           <option
             v-for="(label, value) in availableMetrics"
             :key="value"
@@ -134,7 +134,7 @@ async function download() {
           >
             {{ label }}
           </option>
-        </select>
+        </ConsoleDropdown>
       </label>
     </div>
     <div v-if="visibleKind !== 'none'" class="ai-chart-panel">

@@ -407,6 +407,7 @@ async function sendPrompt() {
       <form class="chat-composer" @submit.prevent="sendPrompt">
         <label for="ai-prompt" class="visually-hidden">Your question</label>
         <textarea
+          class="console-field"
           id="ai-prompt"
           ref="composer"
           v-model="prompt"

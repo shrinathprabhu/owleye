@@ -180,6 +180,7 @@ function label(value: string) {
       <label class="explorer-search">
         <span>Find an event</span>
         <input
+          class="console-field"
           v-model="search"
           autocomplete="off"
           placeholder="signup, checkout, pricing…"

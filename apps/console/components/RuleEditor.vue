@@ -329,6 +329,7 @@ function submit() {
       <label>
         <span>Rule name</span>
         <input
+          class="console-field"
           v-model="draft.name"
           autocomplete="off"
           :disabled="readOnly"
@@ -340,6 +341,7 @@ function submit() {
       <label>
         <span>Event emitted to analytics</span>
         <input
+          class="console-field"
           v-model="draft.emittedEvent"
           autocomplete="off"
           :disabled="readOnly"
@@ -353,6 +355,7 @@ function submit() {
       <label class="rule-field-wide">
         <span>Description <small>optional</small></span>
         <textarea
+          class="console-field"
           v-model="draft.description"
           :disabled="readOnly"
           maxlength="1000"
@@ -374,6 +377,7 @@ function submit() {
       <label>
         <span>Selector value</span>
         <input
+          class="console-field"
           v-model="draft.selector"
           autocomplete="off"
           :disabled="readOnly"
@@ -452,6 +456,7 @@ function submit() {
         </span>
         <span class="rule-number-field">
           <input
+            class="console-field"
             v-model.number="draft.keyValue"
             :disabled="readOnly"
             inputmode="decimal"
@@ -469,6 +474,7 @@ function submit() {
       >
         <span>Page path <small>optional</small></span>
         <input
+          class="console-field"
           v-model="draft.pagePath"
           autocomplete="off"
           :disabled="readOnly"
@@ -496,6 +502,7 @@ function submit() {
           <label>
             <span>Key</span>
             <input
+              class="console-field"
               v-model="property.key"
               autocomplete="off"
               :disabled="readOnly"
@@ -519,6 +526,7 @@ function submit() {
           <label>
             <span>Selector value</span>
             <input
+              class="console-field"
               v-model="property.selector"
               autocomplete="off"
               :disabled="readOnly"
@@ -559,11 +567,17 @@ function submit() {
 
     <div class="rule-options">
       <label class="check-field">
-        <input v-model="draft.enabled" :disabled="readOnly" type="checkbox" />
+        <input
+          class="console-field"
+          v-model="draft.enabled"
+          :disabled="readOnly"
+          type="checkbox"
+        />
         <span>Enable immediately</span>
       </label>
       <label class="check-field">
         <input
+          class="console-field"
           v-model="draft.captureText"
           :disabled="readOnly"
           type="checkbox"
@@ -574,6 +588,7 @@ function submit() {
         <span>Sample matches</span>
         <span class="percentage-input">
           <input
+            class="console-field"
             v-model.number="draft.samplePercent"
             :disabled="readOnly"
             inputmode="numeric"

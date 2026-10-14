@@ -44,8 +44,8 @@ async function save() {
     </p>
     <form @submit.prevent="save">
       <label
-        ><input v-model="enabled" type="checkbox" /> Enable AI for this
-        app</label
+        ><input class="console-field" v-model="enabled" type="checkbox" />
+        Enable AI for this app</label
       ><button class="button primary" :disabled="pending || !siteId">
         Save AI settings
       </button>

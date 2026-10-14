@@ -3,6 +3,10 @@ import type { ConsoleSelectOption } from "~/types/console";
 
 const props = withDefaults(
   defineProps<{
+    id?: string;
+    describedby?: string;
+    invalid?: boolean;
+    required?: boolean;
     ariaLabel?: string;
     disabled?: boolean;
     labelledby?: string;
@@ -23,7 +27,7 @@ const emit = defineEmits<{
   "update:modelValue": [value: number | string];
 }>();
 
-const instance = getCurrentInstance();
+const stableId = useId();
 const root = ref<HTMLElement | null>(null);
 const trigger = ref<HTMLButtonElement | null>(null);
 const open = ref(false);
@@ -31,11 +35,11 @@ const activeIndex = ref(0);
 const typeahead = ref("");
 let typeaheadTimer: ReturnType<typeof setTimeout> | undefined;
 
-const listboxId = `console-select-${instance?.uid ?? "field"}`;
-const triggerId = `${listboxId}-trigger`;
+const listboxId = `console-select-${stableId}`;
+const triggerId = computed(() => props.id || `${listboxId}-trigger`);
 const triggerLabelledby = computed(() =>
   !props.ariaLabel && props.labelledby
-    ? `${props.labelledby} ${triggerId}`
+    ? `${props.labelledby} ${triggerId.value}`
     : undefined,
 );
 const selectedIndex = computed(() =>
@@ -58,21 +62,74 @@ watch(
   },
 );
 
-onMounted(() => document.addEventListener("pointerdown", handleOutsideClick));
+const popover = ref<HTMLElement | null>(null);
+const placement = ref<Record<string, string>>({});
+function place() {
+  const rect = trigger.value?.getBoundingClientRect();
+  if (!rect) return;
+  const width = Math.min(Math.max(rect.width, 290), window.innerWidth - 24);
+  const below = window.innerHeight - rect.bottom - 16;
+  const above = rect.top - 16;
+  const up = below < 220 && above > below;
+  placement.value = {
+    left: `${Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))}px`,
+    width: `${width}px`,
+    maxHeight: `${Math.max(80, Math.min(420, up ? above : below))}px`,
+    top: up ? "auto" : `${rect.bottom + 8}px`,
+    bottom: up ? `${window.innerHeight - rect.top + 8}px` : "auto",
+  };
+}
+function listeners(add: boolean) {
+  const method = add ? "addEventListener" : "removeEventListener";
+  document[method]("pointerdown", handleOutsideClick);
+  window[method]("resize", place);
+  document[method]("scroll", handleScroll, true);
+}
+function handleScroll(event: Event) {
+  if (!popover.value?.contains(event.target as Node)) place();
+}
+watch(open, async (value) => {
+  listeners(value);
+  if (value) {
+    place();
+    await nextTick();
+    scrollActive();
+  }
+});
+function scrollActive() {
+  popover.value
+    ?.querySelector<HTMLElement>(".active")
+    ?.scrollIntoView({ block: "nearest" });
+}
+watch(activeIndex, () => nextTick(scrollActive));
+watch(
+  () => props.disabled,
+  (value) => {
+    if (value) close();
+  },
+);
+defineExpose({ focus: () => trigger.value?.focus() });
 onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", handleOutsideClick);
+  listeners(false);
   if (typeaheadTimer) clearTimeout(typeaheadTimer);
 });
 
-function handleOutsideClick(event: PointerEvent) {
-  if (!root.value?.contains(event.target as Node)) open.value = false;
+function handleOutsideClick(event: Event) {
+  if (
+    !root.value?.contains(event.target as Node) &&
+    !popover.value?.contains(event.target as Node)
+  )
+    open.value = false;
 }
 
 function setOpen(nextOpen: boolean) {
   if (props.disabled || !props.options.length) return;
   open.value = nextOpen;
   if (nextOpen) {
-    activeIndex.value = selectedIndex.value >= 0 ? selectedIndex.value : 0;
+    activeIndex.value =
+      selectedIndex.value >= 0 && !props.options[selectedIndex.value]?.disabled
+        ? selectedIndex.value
+        : findEnabledIndex(0, 1);
   }
 }
 
@@ -170,7 +227,13 @@ function handleKeydown(event: KeyboardEvent) {
       close();
       break;
     default:
-      if (event.key.length === 1 && /\S/.test(event.key)) {
+      if (
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        event.key.length === 1 &&
+        /\S/.test(event.key)
+      ) {
         if (!open.value) setOpen(true);
         handleTypeahead(event.key);
       }
@@ -188,6 +251,9 @@ function handleKeydown(event: KeyboardEvent) {
       role="combobox"
       aria-autocomplete="none"
       :aria-label="ariaLabel"
+      :aria-describedby="describedby"
+      :aria-invalid="invalid || undefined"
+      :aria-required="required || undefined"
       :aria-activedescendant="activeOptionId"
       :aria-controls="listboxId"
       :aria-expanded="open"
@@ -217,44 +283,50 @@ function handleKeydown(event: KeyboardEvent) {
       </svg>
     </button>
 
-    <div
-      v-show="open"
-      :id="listboxId"
-      class="console-select-popover"
-      role="listbox"
-      :aria-labelledby="labelledby"
-    >
-      <button
-        v-for="(option, index) in options"
-        :id="`${listboxId}-option-${index}`"
-        :key="option.value"
-        class="console-select-option"
-        :class="{
-          active: index === activeIndex,
-          selected: option.value === modelValue,
-        }"
-        type="button"
-        role="option"
-        :aria-disabled="option.disabled || undefined"
-        :aria-selected="option.value === modelValue"
-        :disabled="option.disabled"
-        @click="select(option)"
-        @mouseenter="activeIndex = index"
+    <Teleport to="body">
+      <div
+        v-if="open"
+        ref="popover"
+        :style="placement"
+        :id="listboxId"
+        class="console-select-popover console-select-floating"
+        role="listbox"
+        :aria-labelledby="labelledby || triggerId"
       >
-        <span class="console-select-check" aria-hidden="true">
-          {{ option.value === modelValue ? "✓" : "" }}
-        </span>
-        <span class="console-select-option-copy">
-          <span class="console-select-option-line">
-            <strong>{{ option.label }}</strong>
-            <span v-if="option.badge" class="console-select-badge">
-              {{ option.badge }}
-            </span>
+        <button
+          v-for="(option, index) in options"
+          :id="`${listboxId}-option-${index}`"
+          :key="option.value"
+          class="console-select-option"
+          :class="{
+            active: index === activeIndex,
+            selected: option.value === modelValue,
+          }"
+          type="button"
+          role="option"
+          tabindex="-1"
+          @mousedown.prevent
+          :aria-disabled="option.disabled || undefined"
+          :aria-selected="option.value === modelValue"
+          :disabled="option.disabled"
+          @click="select(option)"
+          @mouseenter="activeIndex = index"
+        >
+          <span class="console-select-check" aria-hidden="true">
+            {{ option.value === modelValue ? "✓" : "" }}
           </span>
-          <small v-if="option.description">{{ option.description }}</small>
-          <code v-if="option.meta">{{ option.meta }}</code>
-        </span>
-      </button>
-    </div>
+          <span class="console-select-option-copy">
+            <span class="console-select-option-line">
+              <strong>{{ option.label }}</strong>
+              <span v-if="option.badge" class="console-select-badge">
+                {{ option.badge }}
+              </span>
+            </span>
+            <small v-if="option.description">{{ option.description }}</small>
+            <code v-if="option.meta">{{ option.meta }}</code>
+          </span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

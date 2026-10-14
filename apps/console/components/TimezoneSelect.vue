@@ -93,6 +93,7 @@ function keydown(event: KeyboardEvent) {
     <label :for="id">Timezone</label>
     <div class="timezone-control">
       <input
+        class="console-field"
         :id="id"
         :value="open ? query : selectedLabel"
         role="combobox"

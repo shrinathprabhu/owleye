@@ -379,9 +379,9 @@ function formatDate(value: string | null) {
 
       <p class="developer-lede">
         Analytics API keys give integrations access to this app’s stats and
-        privacy-safe events through selected scopes. AI access must be enabled for the app. They cannot send events, edit data, delete data, or
-        manage the app. Event ingestion keys are managed separately under API
-        Keys.
+        privacy-safe events through selected scopes. AI access must be enabled
+        for the app. They cannot send events, edit data, delete data, or manage
+        the app. Event ingestion keys are managed separately under API Keys.
       </p>
 
       <div class="settings-switches developer-switches">
@@ -394,6 +394,7 @@ function formatDate(value: string | null) {
             >
           </span>
           <input
+            class="console-field"
             v-model="developerMode"
             :disabled="demo"
             role="switch"
@@ -410,6 +411,7 @@ function formatDate(value: string | null) {
             >
           </span>
           <input
+            class="console-field"
             v-model="apiAccessEnabled"
             :disabled="
               demo || !developerMode || !settings.allowed_scopes.length
@@ -489,7 +491,8 @@ function formatDate(value: string | null) {
           <p class="panel-kicker">Choose analytics and AI permissions</p>
           <h2>Create an analytics API key</h2>
           <p>
-            All analytics and AI APIs are available. Keys remain scoped to this app and the permissions you select.
+            All analytics and AI APIs are available. Keys remain scoped to this
+            app and the permissions you select.
           </p>
         </div>
         <span class="status-badge neutral">{{ activeKeys.length }} active</span>
@@ -498,7 +501,12 @@ function formatDate(value: string | null) {
       <form class="developer-key-form" @submit.prevent="createKey">
         <label class="developer-field">
           <span>Key name</span>
-          <input v-model="keyName" maxlength="120" required />
+          <input
+            class="console-field"
+            v-model="keyName"
+            maxlength="120"
+            required
+          />
         </label>
         <label class="developer-field">
           <span>Lifetime</span>
@@ -513,6 +521,7 @@ function formatDate(value: string | null) {
           <legend>Exact access</legend>
           <label>
             <input
+              class="console-field"
               :checked="selectedScopes.includes('events:read')"
               :disabled="!settings.allowed_scopes.includes('events:read')"
               type="checkbox"
@@ -521,13 +530,13 @@ function formatDate(value: string | null) {
             <span>
               <code>events:read</code>
               <small
-                >Privacy-safe events, max 90 days / 5,000
-                rows per call.</small
+                >Privacy-safe events, max 90 days / 5,000 rows per call.</small
               >
             </span>
           </label>
           <label>
             <input
+              class="console-field"
               :checked="selectedScopes.includes('stats:read')"
               :disabled="!settings.allowed_scopes.includes('stats:read')"
               type="checkbox"
@@ -542,6 +551,7 @@ function formatDate(value: string | null) {
           </label>
           <label>
             <input
+              class="console-field"
               :disabled="!settings.allowed_scopes.includes('ai:prompt')"
               :checked="selectedScopes.includes('ai:prompt')"
               type="checkbox"
@@ -550,7 +560,8 @@ function formatDate(value: string | null) {
             <span>
               <code>ai:prompt</code>
               <small
-                >AI requires enabled app access and a configured provider.</small
+                >AI requires enabled app access and a configured
+                provider.</small
               >
             </span>
           </label>

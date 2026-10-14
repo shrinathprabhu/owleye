@@ -47,8 +47,14 @@ async function save() {
     <form class="auth-form" @submit.prevent="save">
       <label
         ><span>Name</span
-        ><input v-model="name" maxlength="120" required /></label
-      ><label><span>Email</span><input :value="email" readonly /></label
+        ><input
+          class="console-field"
+          v-model="name"
+          maxlength="120"
+          required /></label
+      ><label
+        ><span>Email</span
+        ><input class="console-field" :value="email" readonly /></label
       ><button class="button primary" :disabled="pending">Save profile</button>
     </form>
     <p v-if="error" role="alert" class="page-alert">{{ error }}</p>

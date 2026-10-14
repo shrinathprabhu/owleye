@@ -271,6 +271,7 @@ function isCurrentSite(siteId: string, context: number) {
           <label>
             <span>App name</span>
             <input
+              class="console-field"
               v-model="createName"
               autocomplete="off"
               maxlength="120"
@@ -281,6 +282,7 @@ function isCurrentSite(siteId: string, context: number) {
           <label>
             <span>Primary domain <small>optional</small></span>
             <input
+              class="console-field"
               v-model="createDomain"
               autocomplete="off"
               inputmode="url"
@@ -322,6 +324,7 @@ function isCurrentSite(siteId: string, context: number) {
           <label>
             <span>Primary domain</span>
             <input
+              class="console-field"
               v-model="editDomain"
               inputmode="url"
               placeholder="Optional until ready"
@@ -379,6 +382,7 @@ function isCurrentSite(siteId: string, context: number) {
           <label>
             <span>Additional domain</span>
             <input
+              class="console-field"
               v-model="newDomain"
               autocomplete="off"
               inputmode="url"

@@ -96,6 +96,7 @@ async function verified() {
         <label
           ><span>Current password</span
           ><input
+            class="console-field"
             v-model="current"
             type="password"
             autocomplete="current-password"
@@ -103,6 +104,7 @@ async function verified() {
         ><label
           ><span>New password</span
           ><input
+            class="console-field"
             v-model="password"
             type="password"
             autocomplete="new-password"
@@ -111,6 +113,7 @@ async function verified() {
         ><label
           ><span>Confirm new password</span
           ><input
+            class="console-field"
             v-model="confirm"
             type="password"
             autocomplete="new-password"
@@ -148,7 +151,8 @@ async function verified() {
       >
         <label
           ><span>Authenticator code</span
-          ><input
+          ><ConsoleOtpInput
+            class="console-field"
             v-model="code"
             inputmode="numeric"
             maxlength="6"
@@ -176,7 +180,11 @@ async function verified() {
           Type DELETE MY ACCOUNT to delete your account. Owned apps must be
           deleted first. App ownership transfer is not currently supported.
         </p>
-        <input v-model="deletion" aria-label="Deletion confirmation" /><button
+        <input
+          class="console-field"
+          v-model="deletion"
+          aria-label="Deletion confirmation"
+        /><button
           class="button danger"
           :disabled="pending || deletion !== 'DELETE MY ACCOUNT'"
           @click="action = 'delete'"

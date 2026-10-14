@@ -225,7 +225,9 @@ async function mutate(
       <p v-if="notice" class="uptime-note" role="status">{{ notice }}</p>
       <p v-if="loading && !summary" role="status">Loading monitors…</p>
       <template v-if="summary">
-        <p class="uptime-meta">{{ summary.used }} monitors · {{ summary.history_days }}-day history</p>
+        <p class="uptime-meta">
+          {{ summary.used }} monitors · {{ summary.history_days }}-day history
+        </p>
         <form
           v-if="canManage && summary.limit"
           class="uptime-form"
@@ -233,6 +235,7 @@ async function mutate(
         >
           <label
             >Monitor name<input
+              class="console-field"
               v-model="name"
               required
               maxlength="100"
@@ -241,6 +244,7 @@ async function mutate(
           /></label>
           <label class="uptime-url-input"
             >Public URL<input
+              class="console-field"
               v-model="url"
               type="url"
               required

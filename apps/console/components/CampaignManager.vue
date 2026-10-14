@@ -133,11 +133,11 @@ const conversionsPerVisitor = (item: CampaignItem) =>
       <div class="campaign-toolbar-actions">
         <label>
           <span>Range</span>
-          <select v-model.number="days" @change="load">
+          <ConsoleDropdown v-model.number="days" @change="load">
             <option :value="7">Last 7 days</option>
             <option :value="30">Last 30 days</option>
             <option :value="90">Last 90 days</option>
-          </select>
+          </ConsoleDropdown>
         </label>
         <button
           class="primary-action"
@@ -166,6 +166,7 @@ const conversionsPerVisitor = (item: CampaignItem) =>
         <label
           ><span>Name</span
           ><input
+            class="console-field"
             v-model="draft.name"
             maxlength="120"
             placeholder="Launch week"
@@ -174,6 +175,7 @@ const conversionsPerVisitor = (item: CampaignItem) =>
         <label
           ><span>Campaign key <small>optional</small></span
           ><input
+            class="console-field"
             v-model="draft.campaign_key"
             maxlength="128"
             placeholder="launch-week"
@@ -181,6 +183,7 @@ const conversionsPerVisitor = (item: CampaignItem) =>
         <label class="wide"
           ><span>Destination URL</span
           ><input
+            class="console-field"
             v-model="draft.destination_url"
             type="url"
             placeholder="https://example.com/pricing"
@@ -189,6 +192,7 @@ const conversionsPerVisitor = (item: CampaignItem) =>
         <label
           ><span>Source</span
           ><input
+            class="console-field"
             v-model="draft.source"
             maxlength="80"
             placeholder="newsletter"
@@ -197,6 +201,7 @@ const conversionsPerVisitor = (item: CampaignItem) =>
         <label
           ><span>Medium</span
           ><input
+            class="console-field"
             v-model="draft.medium"
             maxlength="80"
             placeholder="email"

@@ -246,6 +246,7 @@ function canRevoke(share: ProViewShare) {
       <div class="delete-options">
         <label v-if="canRemoveForMe">
           <input
+            class="console-field"
             v-model="deleteScope"
             :disabled="pending"
             type="radio"
@@ -258,6 +259,7 @@ function canRevoke(share: ProViewShare) {
         </label>
         <label v-if="canRevokeOthers">
           <input
+            class="console-field"
             v-model="deleteScope"
             :disabled="pending"
             type="radio"
@@ -272,6 +274,7 @@ function canRevoke(share: ProViewShare) {
         </label>
         <label v-if="canDeleteAll">
           <input
+            class="console-field"
             v-model="deleteScope"
             :disabled="pending"
             type="radio"

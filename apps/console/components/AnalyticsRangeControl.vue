@@ -79,6 +79,7 @@ function apply() {
     <div v-if="selection === 'custom'" class="custom-dates">
       <label
         >From (UTC)<input
+          class="console-field"
           v-model="start"
           type="date"
           :min="earliest"
@@ -88,6 +89,7 @@ function apply() {
       /></label>
       <label
         >Through (UTC)<input
+          class="console-field"
           v-model="end"
           type="date"
           :min="endMin"

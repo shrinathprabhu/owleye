@@ -67,6 +67,7 @@ async function login() {
           ><label
             ><span>Email</span
             ><input
+              class="console-field"
               v-model="email"
               type="email"
               autocomplete="username"
@@ -74,6 +75,7 @@ async function login() {
           ><label
             ><span>Password</span
             ><input
+              class="console-field"
               v-model="password"
               type="password"
               autocomplete="current-password"
@@ -81,7 +83,8 @@ async function login() {
         ></template>
         <label v-else
           ><span>Authenticator code</span
-          ><input
+          ><ConsoleOtpInput
+            class="console-field"
             v-model="code"
             inputmode="numeric"
             autocomplete="one-time-code"

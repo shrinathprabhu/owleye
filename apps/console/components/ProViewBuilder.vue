@@ -362,6 +362,7 @@ function draftId() {
       <label class="wide-field">
         <span>Title</span>
         <input
+          class="console-field"
           v-model="draft.title"
           autocomplete="off"
           maxlength="120"
@@ -373,16 +374,16 @@ function draftId() {
       <template v-if="!isFunnel">
         <label>
           <span>Source kind</span>
-          <select v-model="chartSource.kind">
+          <ConsoleDropdown v-model="chartSource.kind">
             <option value="event">Tracked event</option>
             <option value="rule">Tracking rule</option>
             <option value="future_event">Future event</option>
-          </select>
+          </ConsoleDropdown>
         </label>
 
         <label v-if="chartSource.kind !== 'future_event'">
           <span>{{ sourceKindLabel }}</span>
-          <select
+          <ConsoleDropdown
             v-model="chartSource.id"
             required
             @change="updateSelectedSource"
@@ -395,12 +396,13 @@ function draftId() {
             >
               {{ source.label }} · {{ source.meta }}
             </option>
-          </select>
+          </ConsoleDropdown>
         </label>
 
         <label v-else>
           <span>Future event name</span>
           <input
+            class="console-field"
             v-model="chartSource.name"
             autocomplete="off"
             maxlength="120"
@@ -412,11 +414,11 @@ function draftId() {
 
         <label>
           <span>Metric</span>
-          <select v-model="draft.metric">
+          <ConsoleDropdown v-model="draft.metric">
             <option value="events">Occurrences</option>
             <option value="visitors">Unique visitors</option>
             <option value="sessions">Sessions</option>
-          </select>
+          </ConsoleDropdown>
           <small class="field-note"
             >Visitors and sessions are estimates for the selected event or rule,
             counted separately in each group.</small
@@ -425,7 +427,7 @@ function draftId() {
 
         <label class="wide-field">
           <span>Group by</span>
-          <select v-model="draft.breakdown" @change="updateBreakdown">
+          <ConsoleDropdown v-model="draft.breakdown" @change="updateBreakdown">
             <option
               v-for="(label, value) in PRO_VIEW_BREAKDOWNS"
               :key="value"
@@ -433,7 +435,7 @@ function draftId() {
             >
               {{ label }}
             </option>
-          </select>
+          </ConsoleDropdown>
           <small class="field-note"
             >Measures the selected event or rule. Category charts show the top
             20 groups and combine the remaining groups as “Other”. Untagged
@@ -445,6 +447,7 @@ function draftId() {
         <label v-if="draft.breakdown === 'property'" class="wide-field">
           <span>Custom data property key</span>
           <input
+            class="console-field"
             v-model="draft.breakdown_property"
             maxlength="64"
             pattern="[A-Za-z0-9_.-]+"
@@ -453,8 +456,8 @@ function draftId() {
           />
           <small class="field-note"
             >Group by a key from your event’s custom data, such as model,
-            format, or status. String, number, and boolean values are categories.
-            Missing values appear as “(not set)”.</small
+            format, or status. String, number, and boolean values are
+            categories. Missing values appear as “(not set)”.</small
           >
         </label>
         <details class="wide-field property-filters">
@@ -470,13 +473,13 @@ function draftId() {
           </summary>
           <div class="property-filter-head">
             <span>Match filters using</span>
-            <select
+            <ConsoleDropdown
               v-model="chartProperties.logic"
               aria-label="Property filter logic"
             >
               <option value="and">All · AND</option>
               <option value="or">Any · OR</option>
-            </select>
+            </ConsoleDropdown>
           </div>
           <div
             v-for="(filter, filterIndex) in chartProperties.filters"
@@ -484,6 +487,7 @@ function draftId() {
             class="property-filter-row"
           >
             <input
+              class="console-field"
               v-model="filter.key"
               aria-label="Property key"
               maxlength="64"
@@ -491,13 +495,17 @@ function draftId() {
               placeholder="plan"
               required
             />
-            <select v-model="filter.operator" aria-label="Property operator">
+            <ConsoleDropdown
+              v-model="filter.operator"
+              aria-label="Property operator"
+            >
               <option value="equals">Equals</option>
               <option value="not_equals">Does not equal</option>
               <option value="contains">Contains</option>
               <option value="exists">Exists</option>
-            </select>
+            </ConsoleDropdown>
             <input
+              class="console-field"
               v-if="filter.operator !== 'exists'"
               v-model="filter.value"
               aria-label="Property value"
@@ -578,31 +586,31 @@ function draftId() {
         <div class="funnel-controls">
           <label>
             <span>Conversion window</span>
-            <select v-model="funnelConfig.conversion_window">
+            <ConsoleDropdown v-model="funnelConfig.conversion_window">
               <option value="same_session">Same session</option>
               <option value="1h">Within 1 hour</option>
               <option value="1d">Within 1 day</option>
               <option value="7d">Within 7 days</option>
               <option value="30d">Within 30 days</option>
-            </select>
+            </ConsoleDropdown>
           </label>
           <label>
             <span>Step order</span>
-            <select v-model="funnelConfig.order_mode">
+            <ConsoleDropdown v-model="funnelConfig.order_mode">
               <option value="ordered">
                 Ordered · intervening actions allowed
               </option>
               <option value="exact">
                 Exact · no intervening tracked action
               </option>
-            </select>
+            </ConsoleDropdown>
           </label>
           <label>
             <span>Entry</span>
-            <select v-model="funnelConfig.entry_mode">
+            <ConsoleDropdown v-model="funnelConfig.entry_mode">
               <option value="closed">Closed · must begin at step 1</option>
               <option disabled value="open">Open · coming next</option>
-            </select>
+            </ConsoleDropdown>
           </label>
         </div>
         <div class="funnel-step-list">
@@ -615,18 +623,19 @@ function draftId() {
             <div class="step-fields">
               <label>
                 <span>Condition</span>
-                <select
+                <ConsoleDropdown
                   v-model="step.condition.kind"
                   @change="changeFunnelCondition(index)"
                 >
                   <option value="page">Page path</option>
                   <option value="event">Tracked event</option>
                   <option value="rule">Tracking rule</option>
-                </select>
+                </ConsoleDropdown>
               </label>
               <label v-if="step.condition.kind === 'page'">
                 <span>Path</span>
                 <input
+                  class="console-field"
                   v-model="step.condition.id"
                   maxlength="2048"
                   pattern="/.*"
@@ -639,7 +648,7 @@ function draftId() {
                 <span>{{
                   step.condition.kind === "rule" ? "Rule" : "Event"
                 }}</span>
-                <select
+                <ConsoleDropdown
                   v-model="step.condition.id"
                   required
                   @change="updateFunnelStep(index)"
@@ -652,18 +661,19 @@ function draftId() {
                   >
                     {{ source.label }} · {{ source.meta }}
                   </option>
-                </select>
+                </ConsoleDropdown>
               </label>
               <label v-if="step.condition.kind === 'page'">
                 <span>Path matching</span>
-                <select v-model="step.condition.operator">
+                <ConsoleDropdown v-model="step.condition.operator">
                   <option value="exact">Exact path</option>
                   <option value="starts_with">Starts with</option>
-                </select>
+                </ConsoleDropdown>
               </label>
               <label class="step-label">
                 <span>Step label</span>
                 <input
+                  class="console-field"
                   v-model="step.name"
                   maxlength="120"
                   placeholder="Viewed pricing"
@@ -683,13 +693,13 @@ function draftId() {
                 </summary>
                 <div class="property-filter-head">
                   <span>Match filters using</span>
-                  <select
+                  <ConsoleDropdown
                     v-model="stepPropertyFilters(step).logic"
                     aria-label="Property filter logic"
                   >
                     <option value="and">All · AND</option>
                     <option value="or">Any · OR</option>
-                  </select>
+                  </ConsoleDropdown>
                 </div>
                 <div
                   v-for="(filter, filterIndex) in stepPropertyFilters(step)
@@ -698,6 +708,7 @@ function draftId() {
                   class="property-filter-row"
                 >
                   <input
+                    class="console-field"
                     v-model="filter.key"
                     aria-label="Property key"
                     maxlength="64"
@@ -705,7 +716,7 @@ function draftId() {
                     placeholder="plan"
                     required
                   />
-                  <select
+                  <ConsoleDropdown
                     v-model="filter.operator"
                     aria-label="Property operator"
                   >
@@ -713,8 +724,9 @@ function draftId() {
                     <option value="not_equals">Does not equal</option>
                     <option value="contains">Contains</option>
                     <option value="exists">Exists</option>
-                  </select>
+                  </ConsoleDropdown>
                   <input
+                    class="console-field"
                     v-if="filter.operator !== 'exists'"
                     v-model="filter.value"
                     aria-label="Property value"
@@ -787,6 +799,7 @@ function draftId() {
       <label>
         <span>Duration (days)</span>
         <input
+          class="console-field"
           v-model.number="dateRange.days"
           type="number"
           min="1"
@@ -800,7 +813,11 @@ function draftId() {
         >
       </label>
       <label class="check-field">
-        <input v-model="dateRange.compare_previous" type="checkbox" />
+        <input
+          class="console-field"
+          v-model="dateRange.compare_previous"
+          type="checkbox"
+        />
         <span
           >Compare with previous period<small
             >Compare with the preceding {{ dateRange.days }} days of equal
@@ -811,15 +828,16 @@ function draftId() {
 
       <label>
         <span>Card size</span>
-        <select v-model="draft.display.size">
+        <ConsoleDropdown v-model="draft.display.size">
           <option value="wide">Wide</option>
           <option value="compact">Compact</option>
-        </select>
+        </ConsoleDropdown>
       </label>
 
       <label v-if="!isFunnel">
         <span>Page path <small>optional</small></span>
         <input
+          class="console-field"
           v-model="draft.filters.page"
           autocomplete="off"
           pattern="/.*"
@@ -830,6 +848,7 @@ function draftId() {
       <label v-if="!isFunnel">
         <span>Country code <small>optional filter</small></span>
         <input
+          class="console-field"
           v-model="draft.filters.country"
           autocomplete="off"
           maxlength="80"

@@ -324,6 +324,7 @@ function requestError(error: unknown, fallback: string) {
           <label>
             <span>Key name</span>
             <input
+              class="console-field"
               v-model="createName"
               autocomplete="off"
               maxlength="120"
@@ -333,7 +334,11 @@ function requestError(error: unknown, fallback: string) {
           </label>
           <label>
             <span>Expiry <small>optional</small></span>
-            <input v-model="createExpiry" type="datetime-local" />
+            <input
+              class="console-field"
+              v-model="createExpiry"
+              type="datetime-local"
+            />
           </label>
         </div>
         <p class="field-help">
@@ -400,11 +405,20 @@ function requestError(error: unknown, fallback: string) {
             <div class="form-grid form-grid-two">
               <label>
                 <span>Key name</span>
-                <input v-model="editName" maxlength="120" required />
+                <input
+                  class="console-field"
+                  v-model="editName"
+                  maxlength="120"
+                  required
+                />
               </label>
               <label>
                 <span>Expiry <small>leave empty for none</small></span>
-                <input v-model="editExpiry" type="datetime-local" />
+                <input
+                  class="console-field"
+                  v-model="editExpiry"
+                  type="datetime-local"
+                />
               </label>
             </div>
             <p class="field-help">

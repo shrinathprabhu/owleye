@@ -204,7 +204,8 @@ async function run(action: () => Promise<void>, fallback: string) {
             <AuthenticatorSetup :secret="setupSecret" :uri="setupUri" />
             <label>
               <span>Six-digit authenticator code</span>
-              <input
+              <ConsoleOtpInput
+                class="console-field"
                 v-model="authenticatorCode"
                 autocomplete="one-time-code"
                 inputmode="numeric"
@@ -238,6 +239,7 @@ async function run(action: () => Promise<void>, fallback: string) {
           <label>
             <span>App name</span>
             <input
+              class="console-field"
               v-model="appName"
               autocomplete="off"
               maxlength="120"
@@ -248,6 +250,7 @@ async function run(action: () => Promise<void>, fallback: string) {
           <label>
             <span>Allowed domains <small>optional</small></span>
             <textarea
+              class="console-field"
               v-model="domains"
               autocomplete="off"
               placeholder="acme.com, app.acme.com"

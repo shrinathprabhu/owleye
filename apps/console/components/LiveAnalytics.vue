@@ -214,6 +214,7 @@ onBeforeUnmount(() => {
       <label for="live-event"
         >Follow a specific event <small>optional</small>
         <input
+          class="console-field"
           id="live-event"
           v-model="eventDraft"
           maxlength="120"
@@ -279,7 +280,7 @@ onBeforeUnmount(() => {
           <h2>Activity by minute</h2>
           <label
             >Metric
-            <select v-model="metric">
+            <ConsoleDropdown v-model="metric">
               <option
                 v-for="(label, key) in metricLabels"
                 :key="key"
@@ -288,7 +289,7 @@ onBeforeUnmount(() => {
               >
                 {{ label }}
               </option>
-            </select></label
+            </ConsoleDropdown></label
           >
         </header>
         <p v-if="!data.totals.events" class="live-empty">

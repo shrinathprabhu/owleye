@@ -27,6 +27,7 @@ async function copy() {
       deploying.
     </p>
     <textarea
+      class="console-field"
       aria-label="OwlEye installation instructions"
       :value="prompt"
       readonly

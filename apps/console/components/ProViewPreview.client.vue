@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { downloadCsv, type CsvCell } from "~/utils/csv";
-import {
-  BarChart,
-  FunnelChart,
-  LineChart,
-  PieChart,
-  ScatterChart,
-} from "echarts/charts";
+import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import {
   AriaComponent,
   DataZoomComponent,
@@ -32,7 +26,6 @@ use([
   BarChart,
   CanvasRenderer,
   DataZoomComponent,
-  FunnelChart,
   GridComponent,
   LegendComponent,
   LineChart,
@@ -75,7 +68,9 @@ function downloadTable() {
       rows.push([
         definition.title,
         period.label,
-        "Visitors reaching step",
+        definition.funnel?.conversion_window === "same_session"
+          ? "Estimated sessions reaching step"
+          : "Estimated visitors reaching step",
         step.name,
         step.count,
       ]);
@@ -150,7 +145,12 @@ watch(
   () => [props.definition, props.error, props.loading, props.preview] as const,
   async () => {
     await nextTick();
-    if (!hasData.value || props.error || isMap.value) {
+    if (
+      !hasData.value ||
+      props.error ||
+      isMap.value ||
+      props.definition?.kind === "funnel"
+    ) {
       clearChart();
       return;
     }
@@ -165,7 +165,8 @@ function renderChart() {
     !props.preview ||
     !hasData.value ||
     props.error ||
-    isMap.value
+    isMap.value ||
+    props.definition.kind === "funnel"
   ) {
     return;
   }
@@ -207,44 +208,6 @@ function buildOption(): EChartsCoreOption {
           : "axis",
     },
   };
-
-  if (definition.kind === "funnel") {
-    const cohorts = [preview.current, preview.previous].filter(
-      (cohort) => cohort?.steps?.length,
-    );
-    return {
-      ...shared,
-      legend: {
-        bottom: 0,
-        textStyle: { color: theme.text },
-      },
-      series: cohorts.map((cohort, index) => ({
-        data: cohort!.steps!.map((step) => ({
-          ...step,
-          value: step.count,
-        })),
-        gap: 4,
-        itemStyle: { opacity: index === 0 ? 1 : 0.58 },
-        label: {
-          color: theme.tooltipText,
-          fontWeight: 700,
-          formatter: (params: {
-            data?: { name?: string; overall_conversion?: number };
-          }) =>
-            `${params.data?.name ?? "Step"}\n${formatPercent(params.data?.overall_conversion ?? 0)} overall`,
-          position: "inside",
-        },
-        left: cohorts.length === 1 ? "10%" : index === 0 ? "4%" : "54%",
-        maxSize: "92%",
-        minSize: "24%",
-        name: cohort!.label,
-        sort: "none" as const,
-        top: 12,
-        type: "funnel" as const,
-        width: cohorts.length === 1 ? "80%" : "42%",
-      })),
-    };
-  }
 
   if (
     (definition.visualization === "pie" ||
@@ -371,20 +334,6 @@ function buildOption(): EChartsCoreOption {
     },
   };
 }
-
-function formatPercent(value: number) {
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
-}
-
-function formatDuration(value?: number | null) {
-  if (value === null || value === undefined) return "—";
-  if (value < 60_000) return `${Math.round(value / 1000)}s`;
-  if (value < 3_600_000) return `${Math.round(value / 60_000)}m`;
-  if (value < 86_400_000) {
-    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / 3_600_000)}h`;
-  }
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / 86_400_000)}d`;
-}
 </script>
 
 <template>
@@ -461,50 +410,27 @@ function formatDuration(value?: number | null) {
       </template>
     </div>
 
+    <div
+      v-else-if="hasData && definition?.kind === 'funnel'"
+      class="preview-result"
+    >
+      <p class="funnel-definition-note">
+        Counts are estimates using the first qualifying entry in the period.
+        Later attempts do not restart this funnel. Missing or withheld steps are
+        not evidence of zero activity.
+      </p>
+      <FunnelResults
+        v-for="(period, index) in [preview?.current, preview?.previous].filter(
+          Boolean,
+        )"
+        :key="index"
+        :label="period!.label"
+        :steps="period!.steps ?? []"
+        :same-session="definition.funnel?.conversion_window === 'same_session'"
+      />
+    </div>
     <div v-else-if="hasData" class="preview-result">
       <div ref="chartEl" class="preview-chart"></div>
-      <div
-        v-if="definition?.kind === 'funnel' && preview?.current?.steps"
-        class="funnel-metrics"
-      >
-        <h3>{{ preview.current.label }} conversion receipt</h3>
-        <div class="funnel-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Step</th>
-                <th>
-                  {{
-                    definition.funnel?.conversion_window === "same_session"
-                      ? "Sessions"
-                      : "Anonymous visitors"
-                  }}
-                </th>
-                <th>From prior</th>
-                <th>Overall</th>
-                <th>Dropoff</th>
-                <th>Dropoff rate</th>
-                <th>Avg. to next</th>
-                <th>Median to next</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="step in preview.current.steps" :key="step.id">
-                <th>{{ step.name }}</th>
-                <td>{{ new Intl.NumberFormat().format(step.count) }}</td>
-                <td>{{ formatPercent(step.step_conversion) }}</td>
-                <td>{{ formatPercent(step.overall_conversion) }}</td>
-                <td>
-                  {{ new Intl.NumberFormat().format(step.dropoff_count) }}
-                </td>
-                <td>{{ formatPercent(step.dropoff_rate) }}</td>
-                <td>{{ formatDuration(step.avg_time_to_next_ms) }}</td>
-                <td>{{ formatDuration(step.median_time_to_next_ms) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
 
     <div v-else-if="preview" class="preview-state">
@@ -644,6 +570,11 @@ h2 {
   min-width: 0;
 }
 
+.funnel-definition-note {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #b6b7bb;
+}
 .funnel-metrics {
   margin-top: 14px;
   border: 1px solid #34363d;

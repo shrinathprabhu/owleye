@@ -1,9 +1,6 @@
 # @owleye/analytics
 
-[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics)
-[![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml)
-[![Core bundle size (minified + gzip)](https://img.shields.io/bundlejs/size/%40owleye/analytics?format=minzip&label=core%20min%2Bgzip)](https://bundlejs.com/?q=%40owleye%2Fanalytics)
-[![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/packages/analytics/LICENSE)
+[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics) [![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml) [![Core bundle size (minified + gzip)](https://img.shields.io/bundlejs/size/%40owleye/analytics?format=minzip&label=core%20min%2Bgzip)](https://bundlejs.com/?q=%40owleye%2Fanalytics) [![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/packages/analytics/LICENSE)
 
 A dependency-free, cookie-free browser analytics SDK for OwlEye.
 
@@ -366,3 +363,17 @@ The browser measures visible page time using its monotonic clock. Each time the 
 Same-origin referrers are omitted from new SDK payloads and normalized away by the API. Different subdomains, schemes, or ports are different origins and remain eligible as referral sources. Browser privacy settings can prevent any referrer from being available. OwlEye's outbound HTTP `Referrer-Policy` does not remove an external referrer already captured in the event payload.
 
 Web Vitals and explicit performance spans use separate measurement storage and do not appear in ordinary event lists. Web Vitals charts browser metrics; custom span summaries are available through AI reports. Collection still requires loading the optional performance entrypoint. Self-hosted installations have no monthly event allowance.
+
+## Endpoint overrides and proxies
+
+`server` (or `data-owleye-server`) changes the API base URL. Serving the SDK file yourself changes only the script download location. Neither is a managed first-party proxy feature, and neither guarantees recovery of blocked traffic.
+
+A generic rewrite can make all visitors appear to arrive from the proxy. OwlEye accepts forwarded client addresses only when the immediate peer is an explicitly trusted proxy configured by the API operator. The operator must control that hop, remove untrusted incoming forwarding headers, and preserve the original address through the supported chain. Do not expand trust to arbitrary Internet clients or shared hosting ranges. Hosted customers cannot establish this trust merely by setting `server`.
+
+An incorrectly configured proxy can distort visitor/session counts and country attribution, and collapse clients into a shared rate-limit bucket. It adds latency, bandwidth costs, logging exposure and another failure point. Endpoint changes must preserve collection-permission and Global Privacy Control behavior; they are not permission to bypass a visitor's choices. Use the normal API origin until the deployment's trust, routing, headers, privacy and failure behavior have been tested.
+
+## Release artifact checks and source maps
+
+Run `pnpm build`, `pnpm size`, and `node --test test/artifacts.test.mjs` from this package before reporting SDK sizes. The existing size gate covers complete consumer bundles, standalone scripts, unused-import tree shaking and isolation of optional collectors. The artifact test checks documented version-pinned CDN paths against local release files, all declared export targets, SHA-384 integrity values and source-map references. It does not prove that a version has been published or is available from a live CDN; verify publication and the downloaded bytes separately at release time.
+
+Keep the generated JavaScript and declaration maps in `dist` for this release. Their adjacent `sourceMappingURL` references must continue to resolve; stripping only map files would leave broken references. The JavaScript maps embed SDK source for debugging. Declaration maps can point to the original TypeScript source, which is not currently included in the published package. Any change to that packaging requires a deliberate release decision and a packed-consumer check. Source-map files add package/download-on-debug size, not the normal script transfer measured by the gzip budgets. Removing maps from a tarball is not a claim of faster visitor page loads.

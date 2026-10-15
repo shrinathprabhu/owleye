@@ -11,14 +11,7 @@ import { analyticsQuery } from "~/utils/analyticsRange";
 import type { StatsOverviewResponse } from "~/types/stats";
 
 const DEMO_RANGES = [7, 30, 90] as const;
-const CACHE_LIMIT = 24;
-const CACHE_TTL_MS = 60_000;
 const PREFETCH_DELAY_MS = 350;
-
-type CacheEntry = {
-  expiresAt: number;
-  value: StatsOverviewResponse;
-};
 
 type StatsOverviewOptions = {
   days: Readonly<Ref<number>>;
@@ -33,17 +26,17 @@ type StatsOverviewOptions = {
  * prefetch concerns leak into the dashboard page component.
  */
 export function useStatsOverview(options: StatsOverviewOptions) {
-  const { api } = useApi();
+  const { api, responseCache: cache } = useApi();
   const stats = shallowRef<StatsOverviewResponse | null>(null);
   const statsError = ref("");
   const statsPending = ref(false);
-  const cache = new Map<string, CacheEntry>();
   const prefetchControllers = new Map<string, AbortController>();
 
   let foregroundController: AbortController | undefined;
   let foregroundRequest: { key: string; promise: Promise<void> } | undefined;
   let prefetchTimer: ReturnType<typeof setTimeout> | undefined;
   let requestVersion = 0;
+  let displayedKey = "";
 
   const hasLoadedSite = computed(() =>
     Boolean(stats.value?.site_id === options.siteId.value),
@@ -103,17 +96,20 @@ export function useStatsOverview(options: StatsOverviewOptions) {
     if (!force) {
       const cached = readCache(key);
       if (cached) {
-        stats.value = cached;
+        stats.value = cached.value;
+        displayedKey = key;
         statsError.value = "";
         statsPending.value = false;
         scheduleDemoPrefetch(requestedSiteId, requestedDays);
-        return;
+        if (cached.fresh) return;
       }
     }
 
-    if (stats.value?.site_id !== requestedSiteId) stats.value = null;
+    if (stats.value?.site_id !== requestedSiteId || displayedKey !== key)
+      stats.value = null;
     statsError.value = "";
-    statsPending.value = true;
+    statsPending.value = !stats.value;
+    const generation = cache.generation;
 
     const controller = new AbortController();
     foregroundController = controller;
@@ -127,15 +123,21 @@ export function useStatsOverview(options: StatsOverviewOptions) {
       );
 
       if (
+        generation === cache.generation &&
         isCurrentRequest(version, requestedSiteId, requestedDays) &&
         JSON.stringify(requestedDates) === JSON.stringify(options.dates?.value)
       ) {
-        writeCache(key, response);
+        writeCache(key, response, generation);
         stats.value = response;
+        displayedKey = key;
         scheduleDemoPrefetch(requestedSiteId, requestedDays);
       }
     } catch (error) {
       if (!isAbortError(error) && version === requestVersion) {
+        const code =
+          (error as { statusCode?: number; status?: number })?.statusCode ??
+          (error as { status?: number })?.status;
+        if (code === 401 || code === 403) stats.value = null;
         statsError.value = options.toErrorMessage(
           error,
           "Analytics could not be loaded for this site. Check the site ID and try again.",
@@ -184,6 +186,7 @@ export function useStatsOverview(options: StatsOverviewOptions) {
     if (readCache(key) || prefetchControllers.has(key)) return;
 
     const version = requestVersion;
+    const generation = cache.generation;
     const controller = new AbortController();
     prefetchControllers.set(key, controller);
     try {
@@ -196,7 +199,7 @@ export function useStatsOverview(options: StatsOverviewOptions) {
         version === requestVersion &&
         requestedSiteId === options.siteId.value
       ) {
-        writeCache(key, response);
+        writeCache(key, response, generation);
       }
     } catch (error) {
       if (!isAbortError(error)) {
@@ -230,27 +233,15 @@ export function useStatsOverview(options: StatsOverviewOptions) {
   }
 
   function readCache(key: string) {
-    const entry = cache.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAt <= Date.now()) {
-      cache.delete(key);
-      return undefined;
-    }
-
-    // Touch the entry so Map insertion order acts as a tiny LRU.
-    cache.delete(key);
-    cache.set(key, entry);
-    return entry.value;
+    return cache.read<StatsOverviewResponse>(`overview:${key}`);
   }
 
-  function writeCache(key: string, value: StatsOverviewResponse) {
-    cache.delete(key);
-    cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, value });
-    while (cache.size > CACHE_LIMIT) {
-      const oldestKey = cache.keys().next().value;
-      if (!oldestKey) break;
-      cache.delete(oldestKey);
-    }
+  function writeCache(
+    key: string,
+    value: StatsOverviewResponse,
+    generation: number,
+  ) {
+    cache.write(`overview:${key}`, value, generation);
   }
 
   return {

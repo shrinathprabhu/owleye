@@ -1,8 +1,6 @@
 # OwlEye
 
-[![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics)
-[![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/LICENSE)
+[![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics) [![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/LICENSE)
 
 Cookie-free web and product analytics. [Use hosted OwlEye](https://owleye.dev), or self-host this MIT-licensed distribution.
 
@@ -62,6 +60,10 @@ One Rust server serves the Nuxt Console at `/` and APIs at `/v1`. SQLite stores 
 ```
 
 Recommended minimum: **4 vCPU, 8 GB RAM, and 20 GB free storage**. This is guidance, not an enforced restriction. Install Node.js 26.2+, pnpm 10.28.1, Rust 1.95+ with Cargo, ClickHouse, and SQLite before setup. Caddy is optional. Follow the [prerequisite installation links and commands](docs/SELF_HOSTING.md#installing-prerequisites), then run `./setup.sh --check`. Running setup again refuses to overwrite an existing installation; use redeploy to rebuild and restart.
+
+## Endpoint and proxy boundaries
+
+Self-hosted installations should point SDK entrypoints to their own API origin. A `server` override or same-origin rewrite is not an automatically supported first-party proxy. Forwarded addresses are trusted only when the immediate peer is configured in `OWLEYE_TRUSTED_PROXIES`; trust only proxy infrastructure you control and sanitize client-supplied forwarding headers there. An untrusted or incorrectly forwarded request can use the proxy address for visitor/session derivation and geography, and share rate limits with other visitors. Proxies add operational cost and latency, do not guarantee blocker recovery, and must preserve visitor privacy choices. See the [SDK proxy boundaries and release checks](packages/analytics/README.md#endpoint-overrides-and-proxies) before changing delivery paths.
 
 Licensed under [MIT](LICENSE).
 

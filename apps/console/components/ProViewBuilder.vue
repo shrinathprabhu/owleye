@@ -193,6 +193,33 @@ function addChartPropertyFilter() {
   });
 }
 
+function startFunnel(template: "pages" | "success" | "content") {
+  if (props.initialDefinition || props.busy) return;
+  const kinds: Array<"page" | "event"> =
+    template === "content"
+      ? ["page", "page", "page"]
+      : template === "success"
+        ? ["page", "event"]
+        : ["page", "page"];
+  draft.value.title =
+    template === "success"
+      ? "Visit to success"
+      : template === "content"
+        ? "Content discovery"
+        : "Page progression";
+  funnelConfig.value.steps = kinds.map((kind, index) => ({
+    id: draftId(),
+    name: kind === "event" ? "Success event" : `Page ${index + 1}`,
+    condition: {
+      id: "",
+      kind,
+      name: "",
+      ...(kind === "page" ? { operator: "exact" as const } : {}),
+      property_filters: { filters: [], logic: "and" as const },
+    },
+  }));
+}
+
 function addFunnelStep() {
   if ((draft.value.funnel?.steps.length ?? 0) >= 10) return;
   draft.value.funnel ??= {
@@ -579,40 +606,70 @@ function draftId() {
       <fieldset v-else class="wide-field funnel-fieldset">
         <legend>Ordered conversion cohort</legend>
         <p class="field-note">
-          A person must meet each condition in order and inside the selected
-          conversion window. The preview shows how many reach each step, where
-          they drop off, and how long they take between steps.
+          An estimated cohort must meet each condition in order and inside the
+          selected conversion window. The preview shows how many reach each
+          step, where they drop off, and how long they take between steps.
         </p>
-        <div class="funnel-controls">
-          <label>
-            <span>Conversion window</span>
-            <ConsoleDropdown v-model="funnelConfig.conversion_window">
-              <option value="same_session">Same session</option>
-              <option value="1h">Within 1 hour</option>
-              <option value="1d">Within 1 day</option>
-              <option value="7d">Within 7 days</option>
-              <option value="30d">Within 30 days</option>
-            </ConsoleDropdown>
-          </label>
-          <label>
-            <span>Step order</span>
-            <ConsoleDropdown v-model="funnelConfig.order_mode">
-              <option value="ordered">
-                Ordered · intervening actions allowed
-              </option>
-              <option value="exact">
-                Exact · no intervening tracked action
-              </option>
-            </ConsoleDropdown>
-          </label>
-          <label>
-            <span>Entry</span>
-            <ConsoleDropdown v-model="funnelConfig.entry_mode">
-              <option value="closed">Closed · must begin at step 1</option>
-              <option disabled value="open">Open · coming next</option>
-            </ConsoleDropdown>
-          </label>
+        <div v-if="!initialDefinition" class="funnel-starters">
+          <p>
+            Start with a structure, then choose your actual pages and success
+            event below. Selecting a starter replaces unsaved steps.
+          </p>
+          <button type="button" :disabled="busy" @click="startFunnel('pages')">
+            Two pages
+          </button>
+          <button
+            type="button"
+            :disabled="busy"
+            @click="startFunnel('success')"
+          >
+            Page → success event
+          </button>
+          <button
+            type="button"
+            :disabled="busy"
+            @click="startFunnel('content')"
+          >
+            Content discovery
+          </button>
         </div>
+        <details class="funnel-advanced">
+          <summary>
+            Advanced:
+            {{ funnelConfig.conversion_window.replaceAll("_", " ") }} window ·
+            {{ funnelConfig.order_mode }} order
+          </summary>
+          <div class="funnel-controls">
+            <label>
+              <span>Conversion window</span>
+              <ConsoleDropdown v-model="funnelConfig.conversion_window">
+                <option value="same_session">Same session</option>
+                <option value="1h">Within 1 hour</option>
+                <option value="1d">Within 1 day</option>
+                <option value="7d">Within 7 days</option>
+                <option value="30d">Within 30 days</option>
+              </ConsoleDropdown>
+            </label>
+            <label>
+              <span>Step order</span>
+              <ConsoleDropdown v-model="funnelConfig.order_mode">
+                <option value="ordered">
+                  Ordered · intervening actions allowed
+                </option>
+                <option value="exact">
+                  Exact · no intervening tracked action
+                </option>
+              </ConsoleDropdown>
+            </label>
+            <label>
+              <span>Entry</span>
+              <ConsoleDropdown v-model="funnelConfig.entry_mode">
+                <option value="closed">Closed · must begin at step 1</option>
+                <option disabled value="open">Open · coming next</option>
+              </ConsoleDropdown>
+            </label>
+          </div>
+        </details>
         <div class="funnel-step-list">
           <div
             v-for="(step, index) in funnelConfig.steps"
@@ -892,6 +949,29 @@ function draftId() {
 </template>
 
 <style scoped>
+.funnel-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+.funnel-starters p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.funnel-starters button {
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 .pro-builder {
   min-width: 0;
   border: 2px solid #151515;
@@ -1099,6 +1179,13 @@ legend {
   margin-top: 14px;
 }
 
+.funnel-advanced > summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
 .funnel-controls {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

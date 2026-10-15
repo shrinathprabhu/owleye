@@ -970,12 +970,9 @@ mod tests {
     #[ignore = "requires OWLEYE_TEST_CLICKHOUSE_URL; run with --ignored"]
     #[tokio::test]
     async fn initializes_schema_against_configured_clickhouse() {
-        let Ok(url) = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL") else {
-            eprintln!(
-                "skipping ClickHouse integration test; OWLEYE_TEST_CLICKHOUSE_URL is not set"
-            );
-            return;
-        };
+        let url = std::env::var("OWLEYE_TEST_CLICKHOUSE_URL").expect(
+            "Explicitly selected ClickHouse integration test requires OWLEYE_TEST_CLICKHOUSE_URL pointing to an isolated disposable database; omit --ignored to skip it",
+        );
 
         let clickhouse = ClickHouse::new(url).unwrap();
         clickhouse.init().await.unwrap();

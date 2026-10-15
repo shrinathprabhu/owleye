@@ -1,3 +1,4 @@
+import { ResponseCache } from "../utils/responseCache.ts";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import test from "node:test";
@@ -19,7 +20,7 @@ registerHooks({
 });
 const { useStatsOverview } = await import("../composables/useStatsOverview.ts");
 
-function harness() {
+function harness(cache = new ResponseCache()) {
   const requests: Array<{
     query: Record<string, unknown>;
     signal: AbortSignal;
@@ -28,6 +29,7 @@ function harness() {
   }> = [];
   Object.assign(globalThis, {
     useApi: () => ({
+      responseCache: cache,
       api: (
         _path: string,
         options: { query: Record<string, unknown>; signal: AbortSignal },
@@ -88,7 +90,7 @@ test("mount and watcher join one overview request, then reuse the existing cache
     assert.equal(f.requests[0]!.signal.aborted, false);
     const response = f.respond(0);
     await Promise.all([first, second]);
-    assert.equal(f.stats.stats.value, response);
+    assert.deepEqual(f.stats.stats.value, response);
     assert.equal(f.stats.statsPending.value, false);
     await f.stats.refreshStats();
     assert.equal(f.requests.length, 1);
@@ -111,7 +113,7 @@ test("site and range changes abort old requests and ignore their late responses"
     assert.equal(f.stats.statsPending.value, true);
     const response = f.respond(1);
     await selected;
-    assert.equal(f.stats.stats.value, response);
+    assert.deepEqual(f.stats.stats.value, response);
     f.dates.value = { start_date: "2026-08-01", end_date: "2026-08-30" };
     const firstRange = f.stats.refreshStats();
     f.dates.value = { start_date: "2026-09-01", end_date: "2026-09-30" };
@@ -165,4 +167,26 @@ test("reset and unmount prevent old work from repopulating the screen or cache",
   f.respond(1);
   await second;
   assert.equal(f.stats.stats.value, null);
+});
+
+test("overview survives navigation and refreshes stale snapshots without blanking", async () => {
+  let now = 0;
+  const cache = new ResponseCache(() => now);
+  const first = harness(cache);
+  const pending = first.stats.refreshStats();
+  first.respond(0);
+  await pending;
+  first.app.unmount();
+  const second = harness(cache);
+  await second.stats.refreshStats();
+  assert.equal(second.requests.length, 0);
+  assert.equal(second.stats.stats.value?.site_id, "site-a");
+  now = 31_000;
+  const refresh = second.stats.refreshStats();
+  assert.equal(second.requests.length, 1);
+  assert.equal(second.stats.statsPending.value, false);
+  assert.equal(second.stats.stats.value?.site_id, "site-a");
+  second.respond(0);
+  await refresh;
+  second.app.unmount();
 });

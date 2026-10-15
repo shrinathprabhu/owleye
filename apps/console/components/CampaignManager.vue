@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import type { CampaignItem, CampaignsResponse } from "~/types/insights";
-import { apiErrorMessage as requestError } from "~/utils/apiError";
+import {
+  apiErrorMessage as requestError,
+  apiErrorStatus,
+} from "~/utils/apiError";
 import { routes } from "~/utils/routes";
 
 const props = withDefaults(
   defineProps<{ canWrite?: boolean; demo?: boolean; siteId?: string }>(),
   { canWrite: false, demo: false, siteId: "" },
 );
-const { api } = useApi();
+const { api, responseCache } = useApi();
 const response = shallowRef<CampaignsResponse | null>(null);
 const days = ref(30);
 const loading = ref(false);
@@ -37,21 +40,39 @@ async function load() {
   response.value = null;
   error.value = "";
   notice.value = "";
-  if (!props.siteId) return;
+  loading.value = false;
+  const siteId = props.siteId;
+  if (!siteId) return;
+  const cacheKey = `campaigns:${siteId}:${days.value}`;
+  const cached = responseCache.read<CampaignsResponse>(cacheKey);
+  response.value = cached?.value ?? null;
+  if (cached?.fresh) return;
+  const generation = responseCache.generation;
   const current = new AbortController();
   controller = current;
-  loading.value = true;
+  loading.value = !response.value;
   try {
-    response.value = await api<CampaignsResponse>(
-      routes.sites.campaigns(props.siteId),
+    const result = await api<CampaignsResponse>(
+      routes.sites.campaigns(siteId),
       {
         query: { days: days.value },
         signal: current.signal,
       },
     );
+    if (
+      !current.signal.aborted &&
+      siteId === props.siteId &&
+      generation === responseCache.generation
+    ) {
+      responseCache.write(cacheKey, result, generation);
+      response.value = result;
+    }
   } catch (cause) {
-    if (!current.signal.aborted)
+    if (!current.signal.aborted) {
+      if ([401, 403].includes(apiErrorStatus(cause) ?? 0))
+        response.value = null;
       error.value = requestError(cause, "Campaigns could not be loaded.");
+    }
   } finally {
     if (controller === current) {
       controller = undefined;
@@ -213,7 +234,9 @@ const conversionsPerVisitor = (item: CampaignItem) =>
       </button>
     </form>
 
-    <p v-if="error" class="page-alert" role="alert">{{ error }}</p>
+    <p v-if="error" class="page-alert" role="alert">
+      {{ error }} {{ response ? "Showing the last loaded snapshot." : "" }}
+    </p>
     <p v-if="notice" class="campaign-notice" role="status">{{ notice }}</p>
 
     <section class="campaign-totals" aria-label="Campaign totals">

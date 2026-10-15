@@ -33,6 +33,7 @@ const authQueryError = ref(
 );
 const sidebarCollapsed = useState("console-sidebar-collapsed", () => false);
 const rangeDays = ref(30);
+const trafficMetric = ref<"pageviews" | "visitors" | "events">("pageviews");
 const breakdownMetric = ref<BreakdownMetric>("pageviews");
 const metricLabel = computed(() => breakdownLabel(breakdownMetric.value));
 const audienceTotal = computed(() =>
@@ -358,39 +359,33 @@ function metric(value: number | undefined, suffix = "") {
       <p v-if="sitesError" class="page-alert" role="alert">{{ sitesError }}</p>
       <p v-if="statsError" class="page-alert" role="alert">{{ statsError }}</p>
 
-      <section
-        class="status-strip"
-        aria-label="Overview metrics"
-        :aria-busy="statsPending"
-      >
-        <article>
-          <span>Page views</span>
-          <strong :class="{ skeleton: statsPending && !stats }">{{
-            metric(stats?.totals.pageviews)
-          }}</strong>
-          <small>{{ rangeMetricCaption }}</small>
-        </article>
-        <article>
-          <span>Unique visitors</span>
-          <strong :class="{ skeleton: statsPending && !stats }">{{
-            metric(stats?.totals.visitors)
-          }}</strong>
-          <small>
-            {{
-              statsPending && stats
-                ? rangeMetricCaption
-                : "Estimated, deduplicated"
-            }}
-          </small>
-        </article>
-        <article>
-          <span>Tracked events</span>
-          <strong :class="{ skeleton: statsPending && !stats }">{{
-            metric(stats?.totals.events)
-          }}</strong>
-          <small>{{ rangeMetricCaption }}</small>
-        </article>
-      </section>
+      <OverviewMetricCards
+        v-model="trafficMetric"
+        :points="stats?.timeseries ?? []"
+        :totals="hasLoadedSite ? stats?.totals : undefined"
+        :caption="rangeMetricCaption"
+        :loading="statsPending"
+        :error="statsError"
+      />
+      <MetricSnapshotExport
+        :label="
+          trafficMetric === 'visitors'
+            ? 'Estimated visitors'
+            : trafficMetric === 'events'
+              ? 'Tracked events'
+              : 'Page views'
+        "
+        :value="
+          trafficMetric === 'visitors'
+            ? stats?.totals.pageview_visitors
+            : trafficMetric === 'events'
+              ? stats?.totals.events
+              : stats?.totals.pageviews
+        "
+        :period="rangeMetricCaption"
+        :site="selectedSite?.name ?? 'Website'"
+        :disabled="statsPending || !!statsError"
+      />
 
       <section class="content-grid">
         <article id="traffic" class="panel wide data-stage">
@@ -412,6 +407,7 @@ function metric(value: number | undefined, suffix = "") {
             :error="statsError"
             :loading="statsPending"
             :points="stats?.timeseries ?? []"
+            :metrics="[trafficMetric]"
             :interval="stats?.interval ?? 'day'"
             :range-key="
               stats
@@ -619,7 +615,11 @@ function metric(value: number | undefined, suffix = "") {
               )"
               :key="referrer.name"
             >
-              <span>{{ referrer.name }}</span>
+              <span>{{
+                referrer.name === "Direct" || !referrer.name
+                  ? "Direct / unknown"
+                  : referrer.name
+              }}</span>
               <strong>{{ formatNumber(referrer.count) }}</strong>
             </div>
           </div>

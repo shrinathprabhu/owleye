@@ -16,9 +16,10 @@ import { CanvasRenderer } from "echarts/renderers";
 import { useEChartLifecycle } from "~/composables/useEChartLifecycle";
 import type { DimensionStat } from "~/types/stats";
 import {
+  chartLegend,
   chartMotion,
+  chartRingItemStyle,
   readChartTheme,
-  readCssVariable,
 } from "~/utils/chartTheme";
 
 type DonutChartOption = ComposeOption<
@@ -117,42 +118,14 @@ function renderChart() {
   if (!currentChart) return;
 
   const colors = readChartTheme(chartEl.value);
-  const panelColor = readCssVariable(
-    chartEl.value,
-    "--owleye-night",
-    "#111214",
-  );
-  const donutColors = [
-    readCssVariable(chartEl.value, "--accent", "#d8ff52"),
-    readCssVariable(chartEl.value, "--brand", "#3d5afe"),
-    readCssVariable(chartEl.value, "--coral", "#ff705c"),
-    readCssVariable(chartEl.value, "--violet", "#a391ff"),
-    "#a9d637",
-    "#7188ff",
-    "#ff9b8b",
-    "#c2b8ff",
-  ];
   const reduceMotion = prefersReducedMotion();
 
   currentChart.setOption(
     {
       ...chartMotion(reduceMotion, 620),
       aria: { description: chartLabel.value, enabled: true },
-      color: donutColors,
-      legend: {
-        bottom: 0,
-        icon: "circle",
-        itemHeight: 9,
-        itemWidth: 9,
-        pageIconColor: colors.text,
-        pageIconInactiveColor: colors.axis,
-        pageTextStyle: { color: colors.text },
-        textStyle: {
-          color: colors.text,
-          fontFamily: "Geist Variable, sans-serif",
-        },
-        type: "scroll",
-      },
+      color: colors.series,
+      legend: chartLegend(colors),
       series: [
         {
           avoidLabelOverlap: true,
@@ -168,11 +141,7 @@ function renderChart() {
             },
             scaleSize: 6,
           },
-          itemStyle: {
-            borderColor: panelColor,
-            borderRadius: 8,
-            borderWidth: 3,
-          },
+          itemStyle: chartRingItemStyle(colors),
           label: { show: false },
           labelLine: { show: false },
           minAngle: 2,
@@ -253,7 +222,7 @@ function escapeHtml(value: string) {
 </script>
 
 <template>
-  <div class="chart-frame dimension-donut-frame">
+  <div class="chart-frame chart-panel-surface dimension-donut-frame">
     <div v-if="loading && !hasItems" class="chart-state" role="status">
       <span class="state-orbit" aria-hidden="true"></span>
       <strong>Loading {{ label.toLocaleLowerCase() }}</strong>
@@ -317,20 +286,8 @@ function escapeHtml(value: string) {
 
 <style scoped>
 .dimension-donut-frame {
-  --chart-axis: #707279;
-  --chart-grid: #34363d;
-  --chart-text: #c4c5c0;
-  --chart-tooltip-bg: #f7f7f2;
-  --chart-tooltip-text: #111214;
-
   min-height: 320px;
-  overflow: hidden;
-  border: 1.5px solid #303137;
-  border-radius: var(--radius-xl, 22px);
-  color: #fffef9;
-  background:
-    radial-gradient(circle at 78% 10%, rgb(61 90 254 / 0.18), transparent 38%),
-    #111214;
+  height: auto;
 }
 
 .dimension-donut-surface {
@@ -340,11 +297,6 @@ function escapeHtml(value: string) {
 
 .dimension-donut-frame :deep(.chart-state) {
   min-height: 320px;
-  color: #fffef9;
-}
-
-.dimension-donut-frame :deep(.chart-state span) {
-  color: #aeb0b8;
 }
 
 @media (max-width: 520px) {

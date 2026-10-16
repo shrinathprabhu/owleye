@@ -187,7 +187,11 @@ onBeforeUnmount(() => {
         <p class="ranking-help">
           Hover, focus or tap a country to highlight it.
         </p>
-        <ul aria-label="Country ranking" class="country-list">
+        <ul
+          aria-label="Country ranking"
+          class="country-list report-list-scroll"
+          tabindex="0"
+        >
           <li v-for="country in countryData" :key="country.code">
             <button
               type="button"
@@ -292,12 +296,9 @@ onBeforeUnmount(() => {
 .country-list {
   display: grid;
   gap: 5px;
-  max-height: 430px;
-  overflow: auto;
   padding: 4px;
   margin: 0;
   list-style: none;
-  scrollbar-gutter: stable;
 }
 .country-row {
   display: grid;
@@ -357,9 +358,6 @@ onBeforeUnmount(() => {
   }
   .country-map {
     min-height: 330px;
-  }
-  .country-list {
-    max-height: 350px;
   }
 }
 </style>

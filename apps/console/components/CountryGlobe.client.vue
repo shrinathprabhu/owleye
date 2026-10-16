@@ -98,10 +98,10 @@ function draw() {
     context.fill();
     context.strokeStyle =
       feature.properties.name === props.selectedCountry
-        ? "#111214"
+        ? "rgba(76,102,135,.48)"
         : "rgba(255,255,255,.85)";
     context.lineWidth =
-      feature.properties.name === props.selectedCountry ? 2 : 0.55;
+      feature.properties.name === props.selectedCountry ? 0.7 : 0.55;
     context.stroke();
   }
   // Limb shading adds depth while keeping country fills comparable.

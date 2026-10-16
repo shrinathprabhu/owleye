@@ -27,11 +27,13 @@ const rules = computed(() => props.kind === "rules");
     <TrackingSetupPanel
       :kicker="rules ? 'Connect your rules' : 'Measure the experience'"
       :title="
-        rules ? 'Your rules. Ready to listen.' : 'Fast pages. Happier visitors.'
+        rules
+          ? 'Add events from your dashboard.'
+          : 'Fast pages. Happier visitors.'
       "
       :description="
         rules
-          ? 'Publish rules here, then load the optional rules collector on your site. The standard analytics bundle does not install it automatically.'
+          ? 'Load the optional rules collector once, then manage click, form-submit and section-visible events here. New page loads pick up enabled rules; the standard analytics bundle does not install this collector.'
           : 'Add the optional performance entrypoint alongside your existing page analytics. Browser support and interactions determine which Web Vitals are available.'
       "
     >
@@ -64,8 +66,8 @@ const rules = computed(() => props.kind === "rules");
         :code="method === 'npm' ? snippets.npm : snippets.cdn"
       />
       <p class="setup-note" v-if="rules">
-        Enabled rules collect only after the module loads and a matching
-        interaction occurs. They do not recover earlier activity.
+        New page loads fetch enabled rules. Events require the module to load
+        and a matching interaction; they do not recover earlier activity.
       </p>
       <p class="setup-note" v-else-if="method === 'CDN'">
         For manual spans, call
@@ -73,6 +75,11 @@ const rules = computed(() => props.kind === "rules");
         script loads, then call the returned function when the operation
         finishes.
       </p>
+      <TrackingAssistantPrompt
+        :site-id="siteId"
+        :api-base="apiBase"
+        :kind="kind"
+      />
     </TrackingSetupPanel>
   </details>
 </template>

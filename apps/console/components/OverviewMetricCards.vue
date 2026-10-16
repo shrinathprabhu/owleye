@@ -1,34 +1,45 @@
 <script setup lang="ts">
 import type { TrafficChartPoint } from "~/utils/trafficMetrics";
 import { metricSparkline } from "~/utils/metricSparkline";
+import { toggleChartMetric } from "~/utils/chartSelection";
 
 type OverviewMetric = "pageviews" | "visitors" | "events";
 const props = defineProps<{
-  modelValue: OverviewMetric;
+  modelValue: OverviewMetric[];
   points: TrafficChartPoint[];
   totals?: { pageviews: number; pageview_visitors: number; events: number };
   caption: string;
   loading?: boolean;
   error?: string;
 }>();
-const emit = defineEmits<{ "update:modelValue": [value: OverviewMetric] }>();
+const emit = defineEmits<{ "update:modelValue": [value: OverviewMetric[]] }>();
+const metricKeys: OverviewMetric[] = ["pageviews", "visitors", "events"];
+function toggle(key: string) {
+  emit(
+    "update:modelValue",
+    toggleChartMetric(props.modelValue, key as OverviewMetric, metricKeys),
+  );
+}
 const cards = computed(() =>
   [
     {
       key: "pageviews" as const,
       label: "Page views",
+      color: "var(--traffic-pageviews, var(--owleye-lime, #d8ff52))",
       total: props.totals?.pageviews,
       note: "Recorded page views",
     },
     {
       key: "visitors" as const,
       label: "Estimated visitors",
+      color: "var(--traffic-visitors, var(--owleye-violet, #a391ff))",
       total: props.totals?.pageview_visitors,
       note: "Pageview audience · deduplicated across the range",
     },
     {
       key: "events" as const,
       label: "Tracked events",
+      color: "var(--traffic-events, var(--owleye-coral, #ff705c))",
       total: props.totals?.events,
       note: "All recorded event types",
     },
@@ -42,18 +53,18 @@ const cards = computed(() =>
 <template>
   <section
     class="overview-metrics"
-    aria-label="Overview metrics; select a card to change the traffic chart"
+    aria-label="Overview metrics; select a card to view only that series"
     :aria-busy="loading"
   >
     <button
       v-for="card in cards"
       :key="card.key"
       type="button"
-      class="overview-metric"
-      :class="{ selected: modelValue === card.key }"
-      :aria-pressed="modelValue === card.key"
+      class="overview-metric console-selectable-card"
+      :class="{ 'is-selected': modelValue.includes(card.key) }"
+      :aria-pressed="modelValue.includes(card.key)"
       aria-controls="traffic"
-      @click="emit('update:modelValue', card.key)"
+      @click="emit('update:modelValue', [card.key])"
     >
       <span class="metric-label"
         >{{ card.label }} <span aria-hidden="true">↗</span></span
@@ -63,6 +74,8 @@ const cards = computed(() =>
       }}</strong>
       <svg
         v-if="card.spark.path && !error"
+        class="chart-sparkline"
+        :style="{ color: card.color }"
         viewBox="0 0 240 60"
         preserveAspectRatio="none"
         aria-hidden="true"
@@ -88,6 +101,13 @@ const cards = computed(() =>
       }}</small>
     </button>
   </section>
+  <ChartSeriesControls
+    :options="cards"
+    :selected="modelValue"
+    chart-id="traffic"
+    @toggle="toggle"
+    @all="emit('update:modelValue', [...metricKeys])"
+  />
 </template>
 
 <style scoped>
@@ -109,10 +129,6 @@ const cards = computed(() =>
   border-radius: 18px;
   font: inherit;
   cursor: pointer;
-}
-.overview-metric.selected {
-  border-color: var(--accent-primary, #4057ff);
-  box-shadow: inset 0 0 0 1px var(--accent-primary, #4057ff);
 }
 .overview-metric:focus-visible {
   outline: 3px solid var(--accent-primary, #4057ff);

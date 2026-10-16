@@ -9,7 +9,7 @@ use axum::body::Bytes;
 use reqwest::{Client, RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use tokio::{
-    sync::{mpsc, oneshot, OwnedRwLockReadGuard, RwLock},
+    sync::{mpsc, oneshot, OwnedRwLockReadGuard, RwLock, Semaphore},
     time::{self, MissedTickBehavior},
 };
 
@@ -22,6 +22,17 @@ const INSERT_BATCH_MAX_ROWS: usize = 5_000;
 const INSERT_BATCH_INTERVAL: Duration = Duration::from_secs(1);
 const INSERT_QUEUE_CAPACITY: usize = 512;
 const CLICKHOUSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+// Interactive reports share a small pool across cloned clients. Keep one query
+// thread and 96 MiB per admitted query rather than letting every dashboard card
+// multiply the database's parallelism on the small API/analytics hosts.
+const REPORT_CONCURRENCY: usize = 2;
+const REPORT_ADMISSION: usize = 8;
+const REPORT_MAX_ROWS: usize = 2_000;
+const REPORT_MAX_BYTES: usize = 524_288;
+#[path = "clickhouse_report_scope.rs"]
+mod report_scope;
+pub(crate) use report_scope::report_resource_message;
+use report_scope::{resource_error, SiteAdmissions};
 // Bound request waiting; the queued batch retains its erasure fence until settled.
 // Two destination tables, each with four 20-second attempts and 1/2/4s backoff.
 const INSERT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
@@ -52,6 +63,8 @@ const EVENT_COLUMNS: &[&str] = &[
     "utm_source",
     "utm_medium",
     "utm_campaign",
+    "utm_term",
+    "utm_content",
     "timezone",
     "locale",
     "color_scheme",
@@ -120,6 +133,9 @@ pub struct ClickHouse {
     auth: Option<ClickHouseAuth>,
     client: Client,
     ingestion_fences: Arc<Mutex<IngestionFences>>,
+    report_capacity: Arc<Semaphore>,
+    report_admission: Arc<Semaphore>,
+    report_sites: Arc<Mutex<SiteAdmissions>>,
     insert_queue: mpsc::Sender<InsertCommand>,
     url: String,
 }
@@ -152,6 +168,9 @@ impl ClickHouse {
             auth,
             client,
             ingestion_fences: Arc::default(),
+            report_capacity: Arc::new(Semaphore::new(REPORT_CONCURRENCY)),
+            report_admission: Arc::new(Semaphore::new(REPORT_ADMISSION)),
+            report_sites: Arc::default(),
             insert_queue,
             url,
         })
@@ -486,6 +505,18 @@ impl ClickHouse {
         parameters: &[(&str, &str)],
         read_url: Option<&str>,
     ) -> anyhow::Result<Vec<T>> {
+        let bound_site = parameters
+            .iter()
+            .find(|(key, _)| *key == "param_site")
+            .map(|(_, site)| *site);
+        let scope = self.required_report_scope(bound_site)?;
+        if let Some(site) = bound_site {
+            anyhow::ensure!(site == scope.site(), "Report parameter changed site scope");
+        }
+        scope.reserve_statement()?;
+        let _permits = self.report_permits(&scope).await?;
+        let scan_rows = scope.scan_rows().to_string();
+        let scan_bytes = scope.scan_bytes().to_string();
         let override_connection = read_url.map(sanitized_clickhouse_url).transpose()?;
         let request = if let Some((url, auth)) = &override_connection {
             authenticated_post(&self.client, url, auth.as_ref())
@@ -497,12 +528,13 @@ impl ClickHouse {
             .query(&[
                 ("readonly", "1"),
                 ("max_execution_time", "10"),
-                ("max_rows_to_read", "20000000"),
-                ("max_bytes_to_read", "1000000000"),
-                ("max_memory_usage", "268435456"),
+                ("max_rows_to_read", scan_rows.as_str()),
+                ("max_bytes_to_read", scan_bytes.as_str()),
+                ("max_memory_usage", "100663296"),
                 ("max_result_rows", "400"),
                 ("max_result_bytes", "65536"),
-                ("max_threads", "2"),
+                ("max_threads", "1"),
+                ("cancel_http_readonly_queries_on_client_close", "1"),
                 ("read_overflow_mode", "throw"),
                 ("result_overflow_mode", "throw"),
                 ("timeout_overflow_mode", "throw"),
@@ -512,22 +544,40 @@ impl ClickHouse {
             .timeout(Duration::from_secs(15))
             .body(format!("{}\nFORMAT JSONEachRow", analytics_read_query(sql)))
             .send()
-            .await?;
-        #[cfg(test)]
-        if !response.status().is_success() {
-            anyhow::bail!("AI test query failed: {}", response.text().await?);
-        }
-        response.error_for_status_ref()?;
+            .await
+            .map_err(|_| {
+                resource_error("Analytics database is temporarily unavailable; retry shortly")
+            })?;
+        response.error_for_status_ref().map_err(|_| resource_error("Analytics report could not complete within its service limits; shorten the report and retry"))?;
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await? {
-            anyhow::ensure!(bytes.len() + chunk.len() <= 65536, "AI result too large");
+        while let Some(chunk) = response.chunk().await.map_err(|_| {
+            scope.fail_output("Analytics report response was interrupted; retry shortly")
+        })? {
+            scope.consume_output(chunk.len(), 0)?;
+            if bytes.len().saturating_add(chunk.len()) > 65536 {
+                return Err(scope.fail_output(
+                    "AI result exceeded its byte budget; shorten the report and retry",
+                ));
+            }
             bytes.extend_from_slice(&chunk);
         }
-        let text = std::str::from_utf8(&bytes)?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| {
+            scope.fail_output("Analytics report response was invalid; retry shortly")
+        })?;
+        scope.consume_output(
+            0,
+            text.lines().filter(|line| !line.trim().is_empty()).count(),
+        )?;
         let mut rows = Vec::new();
         for line in text.lines().filter(|line| !line.trim().is_empty()) {
-            anyhow::ensure!(rows.len() < 400, "AI result has too many rows");
-            rows.push(serde_json::from_str(line)?);
+            if rows.len() >= 400 {
+                return Err(scope.fail_output(
+                    "AI result exceeded its row budget; shorten the report and retry",
+                ));
+            }
+            rows.push(serde_json::from_str(line).map_err(|_| {
+                scope.fail_output("Analytics report response was invalid; retry shortly")
+            })?);
         }
         Ok(rows)
     }
@@ -538,6 +588,101 @@ impl ClickHouse {
         sql: &str,
     ) -> anyhow::Result<Vec<T>> {
         self.query_ai_report(sql, &[], None).await
+    }
+
+    /// Bounded execution for server-compiled authenticated analytics reports.
+    /// Callers must authorize the site and compile its predicate; this helper
+    /// does not turn arbitrary SQL or a cached permission into authorization.
+    pub(crate) async fn query_report<T: DeserializeOwned>(
+        &self,
+        sql: &str,
+    ) -> anyhow::Result<Vec<T>> {
+        self.query_report_with_params(sql, &[]).await
+    }
+
+    pub(crate) async fn query_report_with_params<T: DeserializeOwned>(
+        &self,
+        sql: &str,
+        parameters: &[(&str, &str)],
+    ) -> anyhow::Result<Vec<T>> {
+        anyhow::ensure!(
+            parameters.iter().all(|(key, _)| key.starts_with("param_")),
+            "Only bound report parameters are accepted"
+        );
+        let prefix = sql.trim_start().to_ascii_uppercase();
+        anyhow::ensure!(
+            prefix.starts_with("SELECT ")
+                || prefix.starts_with("SELECT\n")
+                || prefix.starts_with("WITH ")
+                || prefix.starts_with("WITH\n"),
+            "Reports require a server-compiled SELECT"
+        );
+        let bound_site = parameters
+            .iter()
+            .find(|(key, _)| *key == "param_site")
+            .map(|(_, site)| *site);
+        let scope = self.required_report_scope(bound_site)?;
+        if let Some((_, site)) = parameters.iter().find(|(key, _)| *key == "param_site") {
+            anyhow::ensure!(*site == scope.site(), "Report parameter changed site scope");
+        }
+        scope.reserve_statement()?;
+        let _permits = self.report_permits(&scope).await?;
+        let scan_rows = scope.scan_rows().to_string();
+        let scan_bytes = scope.scan_bytes().to_string();
+        let mut response = self
+            .request()
+            .query(parameters)
+            .query(&[
+                ("readonly", "1"),
+                ("max_execution_time", "5"),
+                ("max_rows_to_read", scan_rows.as_str()),
+                ("max_bytes_to_read", scan_bytes.as_str()),
+                ("max_memory_usage", "100663296"),
+                ("max_result_rows", "2000"),
+                ("max_result_bytes", "524288"),
+                ("max_threads", "1"),
+                ("cancel_http_readonly_queries_on_client_close", "1"),
+                ("read_overflow_mode", "throw"),
+                ("result_overflow_mode", "throw"),
+                ("timeout_overflow_mode", "throw"),
+                ("output_format_json_quote_64bit_integers", "0"),
+                ("wait_end_of_query", "1"),
+            ])
+            .timeout(Duration::from_secs(8))
+            .body(format!("{}\nFORMAT JSONEachRow", analytics_read_query(sql)))
+            .send()
+            .await
+            .map_err(|_| {
+                resource_error("Analytics database is temporarily unavailable; retry shortly")
+            })?;
+        response.error_for_status_ref().map_err(|_| resource_error("Analytics report could not complete within its service limits; shorten the report and retry"))?;
+        if response
+            .content_length()
+            .is_some_and(|length| length > REPORT_MAX_BYTES as u64)
+        {
+            return Err(scope.fail_output(
+                "Analytics report exceeded its response byte budget; shorten the report and retry",
+            ));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| {
+            scope.fail_output("Analytics report response was interrupted; retry shortly")
+        })? {
+            scope.consume_output(chunk.len(), 0)?;
+            if bytes.len().saturating_add(chunk.len()) > REPORT_MAX_BYTES {
+                return Err(scope.fail_output("Analytics report exceeded its response byte budget; shorten the report and retry"));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| {
+            scope.fail_output("Analytics report response was invalid; retry shortly")
+        })?;
+        scope.consume_output(
+            0,
+            text.lines().filter(|line| !line.trim().is_empty()).count(),
+        )?;
+        let rows = decode_report_rows(&bytes).map_err(|_| scope.fail_output("Analytics report response exceeded its row budget or was incomplete; shorten the report and retry"))?;
+        Ok(rows)
     }
 
     pub async fn query_json_each_row<T>(&self, sql: &str) -> anyhow::Result<Vec<T>>
@@ -605,6 +750,25 @@ impl ClickHouse {
     fn request(&self) -> RequestBuilder {
         authenticated_post(&self.client, &self.url, self.auth.as_ref())
     }
+}
+
+fn decode_report_rows<T: DeserializeOwned>(bytes: &[u8]) -> anyhow::Result<Vec<T>> {
+    anyhow::ensure!(
+        bytes.len() <= REPORT_MAX_BYTES,
+        "Analytics report exceeded its response byte budget"
+    );
+    let mut rows = Vec::new();
+    for line in std::str::from_utf8(bytes)?
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+    {
+        anyhow::ensure!(
+            rows.len() < REPORT_MAX_ROWS,
+            "Analytics report exceeded its row budget"
+        );
+        rows.push(serde_json::from_str(line)?);
+    }
+    Ok(rows)
 }
 
 fn sanitized_clickhouse_url(value: &str) -> anyhow::Result<(String, Option<ClickHouseAuth>)> {
@@ -1293,6 +1457,8 @@ mod tests {
             url_path: "/".to_owned(),
             url_search: String::new(),
             utm_campaign: String::new(),
+            utm_term: String::new(),
+            utm_content: String::new(),
             utm_medium: String::new(),
             utm_source: String::new(),
             visitor_id: "visitor".to_owned(),
@@ -1305,3 +1471,7 @@ mod tests {
 #[cfg(test)]
 #[path = "clickhouse_retry_tests.rs"]
 mod retry_tests;
+
+#[cfg(test)]
+#[path = "clickhouse_report_tests.rs"]
+mod report_tests;

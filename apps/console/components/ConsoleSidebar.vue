@@ -275,11 +275,11 @@ function isActive(path: string) {
       </nav>
       <p class="sidebar-note">
         <template v-if="demo">
-          Privacy-first analytics. API-backed results. Read-only actions stay
-          read-only.
+          See where visitors drop off. API-backed results. Read-only actions
+          stay read-only.
         </template>
         <template v-else>
-          Cookie-free analytics on infrastructure you control.
+          Web analytics. Events, funnels and referrers in one place.
         </template>
       </p>
 
@@ -288,10 +288,10 @@ function isActive(path: string) {
         href="https://github.com/shrinathprabhu/owleye"
         rel="noopener noreferrer"
         target="_blank"
-        title="View OwlEye source code"
+        title="OwlEye on GitHub"
       >
         <ConsoleNavIcon name="source" />
-        <span>Source</span>
+        <span>GitHub</span>
       </a>
 
       <div class="sidebar-account" :title="user.email">

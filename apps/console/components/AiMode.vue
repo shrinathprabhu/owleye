@@ -320,10 +320,11 @@ async function sendPrompt() {
         </div>
         <div v-else-if="!submitted.length" class="chat-welcome">
           <span class="welcome-mark" aria-hidden="true">✦</span>
-          <h3>Your numbers have a story.</h3>
+          <h3>Ask your recorded data.</h3>
           <p>
-            Ask about locations, events, traffic, or campaign conversions.
-            Include the filters and date range you want to explore.
+            Ask about locations, events, traffic, or campaign conversions in
+            plain English. Include the filters and date range you want to
+            explore.
           </p>
           <div class="starter-questions">
             <button

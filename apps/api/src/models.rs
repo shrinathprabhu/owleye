@@ -14,7 +14,6 @@ const MAX_EVENT_AGE_DAYS: i64 = 90;
 const MAX_EVENT_FUTURE_MINUTES: i64 = 5;
 const MAX_EVENT_NAME_BYTES: usize = 128;
 const MAX_URL_BYTES: usize = 4 * 1024;
-const MAX_UTM_VALUE_BYTES: usize = 255;
 
 #[derive(Debug, Deserialize)]
 pub struct IngestRequest {
@@ -172,6 +171,8 @@ pub struct EventRow {
     pub(crate) url_path: String,
     pub(crate) url_search: String,
     pub(crate) utm_campaign: String,
+    pub(crate) utm_term: String,
+    pub(crate) utm_content: String,
     pub(crate) utm_medium: String,
     pub(crate) utm_source: String,
     pub(crate) visitor_id: String,
@@ -289,6 +290,8 @@ impl EventRow {
             url_path: page.path.unwrap_or_else(|| "/".to_owned()),
             url_search: page.search.unwrap_or_default(),
             utm_campaign: utm.campaign,
+            utm_term: utm.term,
+            utm_content: utm.content,
             utm_medium: utm.medium,
             utm_source: utm.source,
             visitor_id: anonymous_ids.visitor_id,
@@ -301,6 +304,10 @@ impl EventRow {
 // An API integrator must explicitly send search/hash fields to retain them.
 // A full URL alone must not accidentally persist login tokens or fragments.
 fn normalize_page_urls(page: &mut SdkPage) {
+    page.search = page
+        .search
+        .take()
+        .and_then(|raw| crate::privacy::attribution::sanitize_search(&raw));
     let same_origin = page
         .url
         .as_deref()
@@ -528,6 +535,8 @@ struct UtmAttribution {
     campaign: String,
     medium: String,
     source: String,
+    term: String,
+    content: String,
 }
 
 fn utm_attribution(search: Option<&str>) -> UtmAttribution {
@@ -536,6 +545,7 @@ fn utm_attribution(search: Option<&str>) -> UtmAttribution {
     };
     let mut attribution = UtmAttribution::default();
 
+    let mut seen = std::collections::HashSet::new();
     for pair in search.trim_start_matches('?').split('&') {
         let Some((key, value)) = pair.split_once('=') else {
             continue;
@@ -543,24 +553,34 @@ fn utm_attribution(search: Option<&str>) -> UtmAttribution {
         let Some(key) = decode_query_component(key) else {
             continue;
         };
+        let normalized = key.to_ascii_lowercase();
+        if !seen.insert(normalized.clone()) {
+            continue;
+        }
         let target = if key.eq_ignore_ascii_case("utm_source") {
             &mut attribution.source
         } else if key.eq_ignore_ascii_case("utm_medium") {
             &mut attribution.medium
         } else if key.eq_ignore_ascii_case("utm_campaign") {
             &mut attribution.campaign
+        } else if key.eq_ignore_ascii_case("utm_term") {
+            &mut attribution.term
+        } else if key.eq_ignore_ascii_case("utm_content") {
+            &mut attribution.content
         } else {
             continue;
         };
         if target.is_empty() {
-            *target = decode_query_component(value).unwrap_or_default();
+            *target = decode_query_component(value)
+                .and_then(|v| crate::privacy::attribution::campaign_value(&v))
+                .unwrap_or_default();
         }
     }
 
     attribution
 }
 
-fn decode_query_component(value: &str) -> Option<String> {
+pub(crate) fn decode_query_component(value: &str) -> Option<String> {
     let plus_as_space = value.replace('+', " ");
     let decoded = urlencoding::decode(&plus_as_space).ok()?;
     let decoded = decoded.trim();
@@ -568,17 +588,7 @@ fn decode_query_component(value: &str) -> Option<String> {
         return None;
     }
 
-    let end = decoded
-        .char_indices()
-        .map(|(index, _)| index)
-        .take_while(|index| *index <= MAX_UTM_VALUE_BYTES)
-        .last()
-        .unwrap_or(0);
-    if decoded.len() <= MAX_UTM_VALUE_BYTES {
-        Some(decoded.to_owned())
-    } else {
-        Some(decoded[..end].to_owned())
-    }
+    Some(decoded.to_owned())
 }
 
 fn validate_external_records(event: &SdkEvent) -> Result<(), ApiError> {
@@ -914,7 +924,8 @@ mod tests {
                 name: "page_viewed".to_owned(),
                 page: SdkPage {
                     path: Some("/".to_owned()),
-                    search: Some("?utm_campaign=privacy-launch".to_owned()),
+                    search: Some("?utm_source=newsletter&utm_medium=email&utm_campaign=privacy-launch&utm_term=privacy+analytics&utm_content=hero".to_owned()),
+                    referrer_host: Some("reddit.com".into()),
                     ..SdkPage::default()
                 },
                 timestamp: None,
@@ -949,9 +960,41 @@ mod tests {
 
         assert_eq!(fields["visitor_id"], "visitor-hash");
         assert_eq!(fields["utm_campaign"], "privacy-launch");
+        assert_eq!(fields["utm_term"], "privacy analytics");
+        assert_eq!(fields["utm_content"], "hero");
+        assert_eq!(fields["referrer_host"], "reddit.com");
         assert_eq!(fields["retention_days"], 90);
         assert!(fields
             .keys()
             .all(|field| !field.contains("ip") && !field.contains("address")));
+    }
+    #[test]
+    fn five_utm_fields_are_safe_separate_from_browser_referrer_and_first_occurrence_only() {
+        let values=utm_attribution(Some("?utm_source=Newsletter&utm_medium=email&utm_campaign=launch&utm_term=privacy+analytics&utm_content=hero&ref=producthunt"));
+        assert_eq!(
+            (
+                values.source.as_str(),
+                values.medium.as_str(),
+                values.campaign.as_str(),
+                values.term.as_str(),
+                values.content.as_str()
+            ),
+            ("Newsletter", "email", "launch", "privacy analytics", "hero")
+        );
+        let hostile = utm_attribution(Some(
+            "?utm_term=user%2540example.test&utm_term=safe&utm_content=customer1234567",
+        ));
+        assert!(hostile.term.is_empty() && hostile.content.is_empty());
+        let mut page = SdkPage {
+            url: Some("https://example.test/?utm_content=user%40example.test&plan=pro".into()),
+            search: Some("?utm_content=user%40example.test&plan=pro".into()),
+            referrer: Some("https://reddit.com/r/analytics".into()),
+            referrer_host: Some("reddit.com".into()),
+            ..Default::default()
+        };
+        normalize_page_urls(&mut page);
+        assert_eq!(page.search.as_deref(), Some("?plan=pro"));
+        assert_eq!(page.referrer_host.as_deref(), Some("reddit.com"));
+        assert!(!page.url.as_deref().unwrap().contains("user"));
     }
 }

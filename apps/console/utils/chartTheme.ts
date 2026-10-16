@@ -1,4 +1,5 @@
 export type ChartTheme = {
+  surface?: string;
   axis: string;
   grid: string;
   series: string[];
@@ -15,6 +16,60 @@ export type TrafficChartTheme = ChartTheme & {
   };
 };
 
+/** Shared curve geometry; unknown measurements must remain visible gaps. */
+export const chartLineShape = {
+  smooth: 0.36,
+  smoothMonotone: "x",
+  connectNulls: false,
+} as const;
+
+export const chartLineStroke = { cap: "round", join: "round" } as const;
+
+/** Round only the value end; zero values keep their true zero height. */
+export function chartBarCorners(
+  value: number | null | undefined,
+): [number, number, number, number] {
+  return typeof value !== "number" || !Number.isFinite(value) || value === 0
+    ? [0, 0, 0, 0]
+    : value < 0
+      ? [0, 0, 8, 8]
+      : [8, 8, 0, 0];
+}
+
+export function chartRingItemStyle(theme: ChartTheme) {
+  return {
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: theme.surface ?? "#111214",
+  };
+}
+
+export function chartLegend(theme: ChartTheme) {
+  return {
+    type: "scroll" as const,
+    bottom: 0,
+    icon: "circle",
+    itemHeight: 9,
+    itemWidth: 9,
+    itemGap: 16,
+    pageIconColor: theme.text,
+    pageIconInactiveColor: theme.axis,
+    pageTextStyle: { color: theme.text },
+    textStyle: { color: theme.text, fontFamily: "Geist Variable, sans-serif" },
+  };
+}
+
+export function chartPlotGrid(withZoom = false) {
+  return {
+    top: 24,
+    left: 8,
+    right: 14,
+    bottom: withZoom ? 112 : 48,
+    outerBoundsMode: "same" as const,
+    outerBoundsContain: "axisLabel" as const,
+  };
+}
+
 export function readCssVariable(
   host: HTMLElement,
   name: string,
@@ -25,16 +80,18 @@ export function readCssVariable(
 
 export function readChartTheme(host: HTMLElement): ChartTheme {
   return {
+    surface: readCssVariable(host, "--chart-surface-bg", "#111214"),
     axis: readCssVariable(host, "--chart-axis", "#8f887d"),
     grid: readCssVariable(host, "--chart-grid", "#d8d2c4"),
     series: [
-      readCssVariable(host, "--chart-1", "#3d5afe"),
-      readCssVariable(host, "--chart-2", "#007d84"),
-      readCssVariable(host, "--chart-3", "#c23e35"),
-      readCssVariable(host, "--chart-4", "#6048c8"),
-      readCssVariable(host, "--chart-5", "#668500"),
-      readCssVariable(host, "--coral", "#ff705c"),
-      readCssVariable(host, "--violet", "#a391ff"),
+      readCssVariable(host, "--chart-1", "#d8ff52"),
+      readCssVariable(host, "--chart-2", "#a391ff"),
+      readCssVariable(host, "--chart-3", "#ff705c"),
+      readCssVariable(host, "--chart-4", "#8295ff"),
+      readCssVariable(host, "--chart-5", "#66d9cc"),
+      readCssVariable(host, "--chart-6", "#ffc56b"),
+      readCssVariable(host, "--chart-7", "#c2b8ff"),
+      readCssVariable(host, "--chart-8", "#ff9b8b"),
     ],
     text: readCssVariable(host, "--chart-text", "#6a6861"),
     tooltipBg: readCssVariable(host, "--chart-tooltip-bg", "#111214"),
@@ -53,9 +110,21 @@ export function readTrafficChartTheme(host: HTMLElement): TrafficChartTheme {
   return {
     ...theme,
     traffic: {
-      events: readCssVariable(host, "--traffic-events", "#ff705c"),
-      pageviews: readCssVariable(host, "--traffic-pageviews", "#d6ff3f"),
-      visitors: readCssVariable(host, "--traffic-visitors", "#7188ff"),
+      events: readCssVariable(
+        host,
+        "--traffic-events",
+        readCssVariable(host, "--owleye-coral", "#ff705c"),
+      ),
+      pageviews: readCssVariable(
+        host,
+        "--traffic-pageviews",
+        readCssVariable(host, "--owleye-lime", "#d8ff52"),
+      ),
+      visitors: readCssVariable(
+        host,
+        "--traffic-visitors",
+        readCssVariable(host, "--owleye-violet", "#a391ff"),
+      ),
     },
   };
 }
@@ -84,28 +153,39 @@ export function chartZoom(pointCount: number, theme: ChartTheme) {
       type: "inside" as const,
     },
     {
-      backgroundColor: "rgba(255, 254, 249, 0.58)",
+      backgroundColor: theme.surface ?? "#111214",
       borderColor: theme.grid,
+      borderRadius: 8,
       bottom: 31,
       brushSelect: false,
       dataBackground: {
-        areaStyle: { color: "rgba(61, 90, 254, 0.09)" },
-        lineStyle: { color: "rgba(61, 90, 254, 0.42)", width: 1.2 },
+        areaStyle: { color: theme.series[0], opacity: 0.09 },
+        lineStyle: {
+          ...chartLineStroke,
+          color: theme.series[1],
+          opacity: 0.42,
+          width: 1.2,
+        },
       },
-      fillerColor: "rgba(61, 90, 254, 0.1)",
+      fillerColor: "rgba(163, 145, 255, 0.12)",
       handleIcon:
         "path://M8.2,0.5A2.7,2.7 0 0,0 5.5,3.2V20.8A2.7,2.7 0 0,0 8.2,23.5H15.8A2.7,2.7 0 0,0 18.5,20.8V3.2A2.7,2.7 0 0,0 15.8,0.5ZM9.5,7.2H11V16.8H9.5ZM13,7.2H14.5V16.8H13Z",
       handleSize: 22,
       handleStyle: {
-        borderColor: theme.tooltipBg,
+        borderColor: theme.surface ?? "#111214",
         borderWidth: 1,
-        color: theme.tooltipBg,
+        color: theme.text,
       },
       height: 44,
       moveHandleSize: 0,
       selectedDataBackground: {
-        areaStyle: { color: "rgba(61, 90, 254, 0.14)" },
-        lineStyle: { color: "rgba(61, 90, 254, 0.74)", width: 1.4 },
+        areaStyle: { color: theme.series[0], opacity: 0.14 },
+        lineStyle: {
+          ...chartLineStroke,
+          color: theme.series[1],
+          opacity: 0.74,
+          width: 1.4,
+        },
       },
       showDetail: false,
       showDataShadow: true,

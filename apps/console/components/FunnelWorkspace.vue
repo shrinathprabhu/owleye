@@ -53,13 +53,11 @@ function openBuilder(definition: ProViewWidgetDefinition | null = null) {
   builderOpen.value = true;
   configurationOpen.value = true;
   nextTick(() =>
-    document
-      .querySelector("#funnel-builder")
-      ?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-      }),
+    document.querySelector("#funnel-builder")?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    }),
   );
 }
 
@@ -163,7 +161,11 @@ async function remove(definition: ProViewWidgetDefinition) {
         <article v-for="funnel in funnels" :key="funnel.id">
           <header>
             <div>
-              <span>Ordered funnel</span>
+              <span
+                >{{ funnel.funnel?.order_mode ?? "ordered" }} funnel · v{{
+                  funnel.funnel?.semantic_version ?? 1
+                }}</span
+              >
               <h3>{{ funnel.title }}</h3>
             </div>
             <strong>{{ funnel.funnel?.steps.length }} steps</strong>

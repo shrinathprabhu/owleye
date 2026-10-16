@@ -94,6 +94,34 @@ const value = vitalValue;
 const selectedSamples = computed(
   () => summary(selectedMetric.value)?.samples ?? 0,
 );
+const distribution = computed(() => {
+  const item = summary(selectedMetric.value);
+  if (
+    !item ||
+    item.good_samples == null ||
+    item.needs_improvement_samples == null ||
+    item.poor_samples == null ||
+    !item.samples
+  )
+    return null;
+  return [
+    {
+      label: "Good",
+      count: item.good_samples,
+      color: "var(--vital-good-fill)",
+    },
+    {
+      label: "Needs improvement",
+      count: item.needs_improvement_samples,
+      color: "var(--vital-watch-fill)",
+    },
+    {
+      label: "Poor",
+      count: item.poor_samples,
+      color: "var(--vital-poor-fill)",
+    },
+  ].map((band) => ({ ...band, share: (band.count / item.samples) * 100 }));
+});
 const emptyDescription = computed(() =>
   response.value?.collecting
     ? selectedMetric.value === "INP"
@@ -148,7 +176,7 @@ const emptyDescription = computed(() =>
         :key="metric"
         type="button"
         :class="[
-          'vital-card',
+          'vital-card console-selectable-card',
           summary(metric)?.rating,
           { active: selectedMetric === metric },
         ]"
@@ -191,6 +219,48 @@ const emptyDescription = computed(() =>
       Bands show rating thresholds, not the share of visitors in each band.
       Metrics reflect supported browsers that sent samples.
     </p>
+    <p
+      v-if="selectedSamples > 0 && !distribution"
+      class="sample-note"
+      role="status"
+    >
+      The sample distribution is unavailable or withheld for privacy. Missing
+      bands are not zero; the percentile summary above remains separate.
+    </p>
+    <section
+      v-if="distribution"
+      class="insight-panel"
+      aria-label="Selected metric sample distribution"
+    >
+      <header>
+        <div>
+          <p class="panel-kicker">Observed samples</p>
+          <h2>{{ selectedMetric }} rating distribution</h2>
+        </div>
+        <span>{{ selectedSamples.toLocaleString() }} samples</span>
+      </header>
+      <div class="vital-distribution" aria-hidden="true">
+        <span
+          v-for="band in distribution"
+          :key="band.label"
+          :style="{ width: `${band.share}%`, background: band.color }"
+        ></span>
+      </div>
+      <ul class="distribution-labels">
+        <li
+          v-for="band in distribution"
+          :key="band.label"
+          :style="{ '--band-fill': band.color }"
+        >
+          <strong>{{ band.label }}</strong> {{ band.count.toLocaleString() }} ·
+          {{ band.share.toFixed(1) }}%
+        </li>
+      </ul>
+      <p class="sample-note">
+        Shares describe reported samples, not all visitors. The complete
+        distribution is withheld when a contributing band has a sparse audience.
+      </p>
+    </section>
     <section v-if="!error || response" class="insight-panel performance-stage">
       <header>
         <div>
@@ -266,9 +336,9 @@ const emptyDescription = computed(() =>
   border-radius: 8px;
   background: linear-gradient(
     to right,
-    #23835b 0 33.33%,
-    #b57913 33.33% 66.66%,
-    #ba4c46 66.66% 100%
+    var(--vital-good) 0 33.33%,
+    var(--vital-watch) 33.33% 66.66%,
+    var(--vital-poor) 66.66% 100%
   );
   margin: 10px 4px;
 }
@@ -291,6 +361,24 @@ const emptyDescription = computed(() =>
 }
 
 .insights-stack {
+  --vital-good: var(--owleye-lime);
+  --vital-watch: var(--owleye-violet);
+  --vital-poor: var(--owleye-coral);
+  --vital-good-fill: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vital-good), var(--bg-elevated) 18%),
+    var(--vital-good)
+  );
+  --vital-watch-fill: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vital-watch), var(--bg-elevated) 18%),
+    var(--vital-watch)
+  );
+  --vital-poor-fill: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vital-poor), var(--bg-elevated) 18%),
+    var(--vital-poor)
+  );
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
   display: grid;
@@ -390,10 +478,10 @@ select {
   text-transform: capitalize;
 }
 .vital-card.good > span {
-  color: var(--success-700);
+  color: var(--accent-text-safe);
 }
 .vital-card.needs_improvement > span {
-  color: var(--warning-700);
+  color: var(--chart-4);
 }
 .vital-card.poor > span {
   color: var(--error-700);
@@ -471,6 +559,36 @@ select {
   padding: 11px 13px;
   font-size: 0.72rem;
   white-space: pre;
+}
+.vital-distribution {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  margin: 14px 0;
+  background: var(--bg-accent-subtle);
+}
+.vital-distribution span {
+  min-width: 0;
+}
+.distribution-labels li::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 3px;
+  background: var(--band-fill);
+}
+.distribution-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 @media (max-width: 920px) {
   .vitals-grid {

@@ -25,6 +25,8 @@ const draft = reactive({
   medium: "email",
   name: "",
   source: "newsletter",
+  term: "",
+  content: "",
 });
 let controller: AbortController | undefined;
 
@@ -97,6 +99,8 @@ async function createCampaign() {
       medium: "email",
       name: "",
       source: "newsletter",
+      term: "",
+      content: "",
     });
     createOpen.value = false;
     await load();
@@ -228,7 +232,27 @@ const conversionsPerVisitor = (item: CampaignItem) =>
             placeholder="email"
             required
         /></label>
+        <label
+          ><span>Term <small>optional · utm_term</small></span
+          ><input
+            class="console-field"
+            v-model="draft.term"
+            maxlength="200"
+            placeholder="analytics"
+        /></label>
+        <label
+          ><span>Content <small>optional · utm_content</small></span
+          ><input
+            class="console-field"
+            v-model="draft.content"
+            maxlength="200"
+            placeholder="hero-button"
+        /></label>
       </div>
+      <p class="campaign-note">
+        Use campaign and creative codes, never names, email addresses, or other
+        personal information.
+      </p>
       <button class="primary-action" :disabled="mutating" type="submit">
         {{ mutating ? "Creating…" : "Create tagged campaign" }}
       </button>
@@ -250,7 +274,7 @@ const conversionsPerVisitor = (item: CampaignItem) =>
       <article>
         <span>Visitors</span
         ><strong>{{ response?.totals.visitors.toLocaleString() ?? "—" }}</strong
-        ><small>attributed people</small>
+        ><small>estimated audience · deduplicated across campaigns</small>
       </article>
       <article>
         <span>Views</span
@@ -291,48 +315,124 @@ const conversionsPerVisitor = (item: CampaignItem) =>
             </tr>
           </thead>
           <tbody>
-            <tr
+            <template
               v-for="item in response.items"
               :key="item.id ?? item.campaign_key"
             >
-              <th>
-                <strong>{{ item.name }}</strong
-                ><code>{{ item.campaign_key }}</code>
-              </th>
-              <td>{{ item.source || "—" }} / {{ item.medium || "—" }}</td>
-              <td>{{ item.visitors.toLocaleString() }}</td>
-              <td>{{ item.views.toLocaleString() }}</td>
-              <td>{{ item.conversions.toLocaleString() }}</td>
-              <td>{{ conversionsPerVisitor(item) }}</td>
-              <td>
-                <div class="row-actions">
-                  <button
-                    v-if="item.tracking_url"
-                    type="button"
-                    @click="copyLink(item)"
+              <tr>
+                <th>
+                  <strong>{{ item.name }}</strong
+                  ><code>{{ item.campaign_key }}</code>
+                </th>
+                <td>
+                  {{ item.source || "—" }} / {{ item.medium || "—"
+                  }}<small
+                    v-if="item.term || item.content"
+                    class="campaign-codes"
+                    >{{ item.term ? `Term: ${item.term}` : ""
+                    }}{{ item.term && item.content ? " · " : ""
+                    }}{{
+                      item.content ? `Content: ${item.content}` : ""
+                    }}</small
                   >
-                    Copy link
-                  </button>
-                  <template v-if="item.id && canWrite && !demo">
+                </td>
+                <td>{{ item.visitors.toLocaleString() }}</td>
+                <td>{{ item.views.toLocaleString() }}</td>
+                <td>{{ item.conversions.toLocaleString() }}</td>
+                <td>{{ conversionsPerVisitor(item) }}</td>
+                <td>
+                  <div class="row-actions">
                     <button
-                      v-if="confirmDelete !== item.id"
+                      v-if="item.tracking_url"
                       type="button"
-                      @click="confirmDelete = item.id"
+                      @click="copyLink(item)"
                     >
-                      Remove
+                      Copy link
                     </button>
-                    <button
-                      v-else
-                      class="danger-action"
-                      type="button"
-                      @click="deleteCampaign(item)"
+                    <template v-if="item.id && canWrite && !demo">
+                      <button
+                        v-if="confirmDelete !== item.id"
+                        type="button"
+                        @click="confirmDelete = item.id"
+                      >
+                        Remove
+                      </button>
+                      <button
+                        v-else
+                        class="danger-action"
+                        type="button"
+                        @click="deleteCampaign(item)"
+                      >
+                        Confirm
+                      </button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+              <tr
+                v-if="item.variants?.length || item.variants_withheld"
+                class="campaign-variant-row"
+              >
+                <td colspan="7">
+                  <details class="campaign-variants">
+                    <summary>
+                      Source &amp; creative variants ·
+                      {{ item.variants?.length ?? 0 }} reported
+                    </summary>
+                    <p class="campaign-note">
+                      Up to 20 reported combinations with at least five distinct
+                      visitors. Audience counts can overlap between variants; do
+                      not sum them as people.
+                    </p>
+                    <p v-if="item.variants_withheld" class="campaign-note">
+                      Some combinations are withheld or outside the reporting
+                      limit. Missing combinations are not zero.
+                    </p>
+                    <div
+                      v-if="item.variants?.length"
+                      class="variant-table-wrap"
+                      tabindex="0"
+                      role="region"
+                      :aria-label="`${item.name} campaign variants`"
                     >
-                      Confirm
-                    </button>
-                  </template>
-                </div>
-              </td>
-            </tr>
+                      <table class="variant-table">
+                        <caption>
+                          {{
+                            item.name
+                          }}
+                          · observed campaign variants
+                        </caption>
+                        <thead>
+                          <tr>
+                            <th scope="col">Source</th>
+                            <th scope="col">Medium</th>
+                            <th scope="col">Term</th>
+                            <th scope="col">Content</th>
+                            <th scope="col">Visitors</th>
+                            <th scope="col">Views</th>
+                            <th scope="col">Conversions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr
+                            v-for="(variant, index) in item.variants"
+                            :key="index"
+                          >
+                            <td>{{ variant.source || "—" }}</td>
+                            <td>{{ variant.medium || "—" }}</td>
+                            <td>{{ variant.term || "Not captured" }}</td>
+                            <td>{{ variant.content || "Not captured" }}</td>
+                            <td>{{ variant.visitors.toLocaleString() }}</td>
+                            <td>{{ variant.views.toLocaleString() }}</td>
+                            <td>{{ variant.conversions.toLocaleString() }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -340,20 +440,17 @@ const conversionsPerVisitor = (item: CampaignItem) =>
         <span class="state-symbol">↗</span
         ><strong>No campaigns in this range</strong
         ><span
-          >Create a tagged link or enable captureCampaigns in the SDK.</span
+          >Share a tagged campaign link and wait for recorded traffic.</span
         >
       </div>
     </section>
 
     <aside class="campaign-help">
-      <strong>SDK requirement</strong>
-      <code
-        >useAnalytics("{{ response?.site_id || siteId }}", { captureCampaigns:
-        true })</code
-      >
+      <strong>Automatic campaign capture</strong>
       <span
-        >Only utm_source, utm_medium, and utm_campaign are retained; arbitrary
-        query parameters stay excluded.</span
+        >SDK 1.0.3 and later captures utm_source, utm_medium, utm_campaign,
+        utm_term, and utm_content automatically. Other query parameters stay
+        excluded unless full query capture is enabled.</span
       >
     </aside>
   </div>
@@ -575,6 +672,53 @@ tbody th code {
 }
 .campaign-help span {
   color: var(--text-tertiary);
+}
+.campaign-note {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.campaign-codes {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+.campaign-variant-row > td {
+  text-align: left;
+  padding-top: 0;
+  border-top: 0;
+}
+.campaign-variants {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 12px;
+}
+.campaign-variants summary {
+  cursor: pointer;
+  color: var(--brand-text-safe);
+  font-weight: 700;
+}
+.variant-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border-radius: 10px;
+}
+.variant-table {
+  min-width: 820px;
+}
+.variant-table th,
+.variant-table td {
+  text-align: left;
+  vertical-align: top;
+}
+.variant-table caption {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-secondary);
 }
 @media (max-width: 820px) {
   .campaign-toolbar {

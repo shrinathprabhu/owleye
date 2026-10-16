@@ -296,7 +296,7 @@ async function load() {
           session counts are estimates. Breakdowns use the same counts and
           grouping as Console.
         </p>
-        <a href="https://owleye.dev/">Cookie-free analytics by OwlEye ↗</a>
+        <a href="https://owleye.dev/">Analytics by OwlEye ↗</a>
       </footer>
     </template>
   </main>

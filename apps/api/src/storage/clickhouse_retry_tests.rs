@@ -289,6 +289,9 @@ async fn full_queue_rejects_with_backpressure_without_waiting() {
         auth: None,
         client: Client::new(),
         ingestion_fences: Arc::default(),
+        report_capacity: Arc::new(tokio::sync::Semaphore::new(super::REPORT_CONCURRENCY)),
+        report_admission: Arc::new(tokio::sync::Semaphore::new(super::REPORT_ADMISSION)),
+        report_sites: Arc::default(),
         insert_queue: sender,
         url: "http://127.0.0.1:1".to_owned(),
     };

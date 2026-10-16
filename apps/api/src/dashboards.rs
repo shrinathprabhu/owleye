@@ -105,12 +105,19 @@ struct WidgetSource {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct FunnelDefinition {
+    /// Missing versions retain first-entry semantics until explicitly upgraded.
+    #[serde(default = "default_funnel_semantic_version")]
+    semantic_version: u8,
     conversion_window: String,
     #[serde(default = "default_entry_mode")]
     entry_mode: String,
     #[serde(default = "default_order_mode")]
     order_mode: String,
     steps: Vec<FunnelStep>,
+}
+
+fn default_funnel_semantic_version() -> u8 {
+    1
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -152,6 +159,7 @@ struct FunnelPropertyFilter {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct WidgetPreviewResponse {
+    measurement_population: crate::report_population::PopulationContext,
     current: PreviewPeriod,
     granularity: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -651,7 +659,7 @@ pub(crate) async fn preview_widget(
         let site =
             sites::resolve_site_for_user(&state.sqlite, &session.id, &site_identifier).await?;
         require_dashboard_owner(&state.sqlite, &site.id, &dashboard_id, &session.id).await?;
-        live_widget_preview(&state, &site, &request).await?
+        scoped_widget_preview(&state, &site, &request).await?
     };
     Ok(Json(preview))
 }
@@ -678,7 +686,7 @@ pub(crate) async fn preview_draft_widget(
     } else {
         let site =
             sites::resolve_site_for_admin(&state.sqlite, &session.id, &site_identifier).await?;
-        live_widget_preview(&state, &site, &request).await?
+        scoped_widget_preview(&state, &site, &request).await?
     };
     Ok(Json(preview))
 }
@@ -991,9 +999,34 @@ struct FunnelPeriodRange {
 }
 
 struct FunnelCountMetrics {
+    audience_counts: Option<Vec<u64>>,
     average_time_to_next_ms: Vec<Option<u64>>,
     counts: Vec<u64>,
     median_time_to_next_ms: Vec<Option<u64>>,
+}
+
+fn funnel_audience_reportable(metrics: &FunnelCountMetrics) -> bool {
+    metrics.audience_counts.as_ref().is_some_and(|counts| {
+        !counts.is_empty()
+            && counts.len() == metrics.counts.len()
+            && counts.iter().all(|count| *count >= 5)
+    })
+}
+
+fn protected_funnel_period(
+    funnel: &FunnelDefinition,
+    label: String,
+    counts: FunnelCountMetrics,
+) -> PreviewPeriod {
+    if funnel_audience_reportable(&counts) {
+        funnel_period(funnel, label, counts)
+    } else {
+        PreviewPeriod {
+            label,
+            points: None,
+            steps: Some(vec![]),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1006,6 +1039,29 @@ struct ChartBucketRow {
 struct MapBucketRow {
     country: String,
     value: u64,
+}
+
+async fn scoped_widget_preview(
+    state: &AppState,
+    site: &ActiveSite,
+    request: &WidgetRequest,
+) -> Result<WidgetPreviewResponse, ApiError> {
+    let (_, previous, _) = widget_ranges(request, Utc::now())?;
+    let category_query =
+        request.funnel.is_none() && request.visualization != "map" && request.breakdown != "time";
+    let max_queries = if category_query || previous.is_none() {
+        1
+    } else {
+        2
+    };
+    state
+        .clickhouse
+        .with_report_scope(
+            &site.tracking_id,
+            max_queries,
+            live_widget_preview(state, site, request),
+        )
+        .await
 }
 
 async fn live_widget_preview(
@@ -1034,7 +1090,11 @@ async fn live_funnel_preview(
         )?;
         (
             current_counts,
-            Some(funnel_period(funnel, range.label, previous_counts)),
+            Some(protected_funnel_period(
+                funnel,
+                range.label,
+                previous_counts,
+            )),
         )
     } else {
         (
@@ -1042,8 +1102,9 @@ async fn live_funnel_preview(
             None,
         )
     };
-    let current = funnel_period(funnel, current_range.label, current_counts);
+    let current = protected_funnel_period(funnel, current_range.label, current_counts);
     Ok(WidgetPreviewResponse {
+        measurement_population: crate::report_population::context(funnel.semantic_version.into()),
         current,
         granularity,
         map: None,
@@ -1078,6 +1139,7 @@ async fn live_chart_preview(
             None
         };
         return Ok(WidgetPreviewResponse {
+            measurement_population: crate::report_population::context(1),
             current: PreviewPeriod {
                 label: current_range.label,
                 points: None,
@@ -1110,10 +1172,7 @@ async fn live_chart_preview(
             &current_range,
             previous_range.as_ref(),
         );
-        let rows = state
-            .clickhouse
-            .query_json_each_row::<CategoryRow>(&sql)
-            .await?;
+        let rows = state.clickhouse.query_report::<CategoryRow>(&sql).await?;
         let points = |prior: bool| {
             rows.iter()
                 .map(|row| ChartPreviewPoint {
@@ -1127,6 +1186,7 @@ async fn live_chart_preview(
                 .collect()
         };
         return Ok(WidgetPreviewResponse {
+            measurement_population: crate::report_population::context(1),
             current: PreviewPeriod {
                 label: current_range.label,
                 points: Some(points(false)),
@@ -1171,6 +1231,7 @@ async fn live_chart_preview(
         )
     };
     Ok(WidgetPreviewResponse {
+        measurement_population: crate::report_population::context(1),
         current,
         granularity,
         map: None,
@@ -1204,7 +1265,7 @@ async fn query_chart_period(
     );
     let rows = state
         .clickhouse
-        .query_json_each_row::<ChartBucketRow>(&sql)
+        .query_report::<ChartBucketRow>(&sql)
         .await?;
     let values = rows
         .into_iter()
@@ -1247,7 +1308,7 @@ async fn query_map_points(
         SETTINGS output_format_json_quote_64bit_integers = 0
         "#
     );
-    Ok(state.clickhouse.query_json_each_row(&sql).await?)
+    Ok(state.clickhouse.query_report(&sql).await?)
 }
 
 async fn query_funnel_counts(
@@ -1257,7 +1318,7 @@ async fn query_funnel_counts(
     period: &FunnelPeriodRange,
 ) -> Result<FunnelCountMetrics, ApiError> {
     let sql = funnel_query(&site.tracking_id, funnel, period, Utc::now());
-    let rows = state.clickhouse.query_json_each_row::<Value>(&sql).await?;
+    let rows = state.clickhouse.query_report::<Value>(&sql).await?;
     decode_funnel_counts(rows.first(), funnel.steps.len())
 }
 
@@ -1281,7 +1342,12 @@ fn decode_funnel_counts(row: Option<&Value>, steps: usize) -> Result<FunnelCount
                 .map(|value| (counts[index] > 0).then_some(value))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let audience_counts = (1..=steps)
+        .map(|index| read(format!("step_{index}_visitors")))
+        .collect::<Result<Vec<_>, _>>()
+        .ok();
     Ok(FunnelCountMetrics {
+        audience_counts,
         average_time_to_next_ms,
         counts,
         median_time_to_next_ms,
@@ -1483,6 +1549,7 @@ fn demo_funnel_preview(
     let (current_range, previous_range, granularity) =
         widget_ranges(request, Utc::now()).expect("validated comparison");
     WidgetPreviewResponse {
+        measurement_population: crate::report_population::context(funnel.semantic_version.into()),
         current: funnel_period(funnel, current_range.label, counts),
         granularity,
         map: None,
@@ -1522,6 +1589,7 @@ fn demo_chart_preview(
             ("SG", 5),
         ];
         return WidgetPreviewResponse {
+            measurement_population: crate::report_population::context(1),
             current: PreviewPeriod {
                 label: current_range.label,
                 points: None,
@@ -1595,6 +1663,7 @@ fn demo_chart_preview(
             steps: None,
         };
         return WidgetPreviewResponse {
+            measurement_population: crate::report_population::context(1),
             current: period(current_range, 100),
             previous: previous_range.map(|range| period(range, 84)),
             granularity,
@@ -1606,6 +1675,7 @@ fn demo_chart_preview(
     let previous = previous_range
         .map(|range| demo_chart_period(site, source, range, granularity, aligned, 84));
     WidgetPreviewResponse {
+        measurement_population: crate::report_population::context(1),
         current,
         granularity,
         map: None,
@@ -1675,6 +1745,7 @@ fn demo_funnel_counts(first: u64, steps: usize) -> FunnelCountMetrics {
         })
         .collect();
     FunnelCountMetrics {
+        audience_counts: None,
         average_time_to_next_ms: (1..steps)
             .map(|index| Some(index as u64 * 3_600_000))
             .collect(),
@@ -1899,6 +1970,7 @@ mod tests {
     #[test]
     fn open_entry_funnels_are_persistable_but_not_previewed() {
         let funnel = FunnelDefinition {
+            semantic_version: 1,
             conversion_window: "1d".to_owned(),
             entry_mode: "open".to_owned(),
             order_mode: "ordered".to_owned(),

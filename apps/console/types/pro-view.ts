@@ -85,6 +85,7 @@ export type ProViewWidgetDefinition = {
     page?: string;
   };
   funnel?: {
+    semantic_version?: 1 | 2;
     conversion_window: ProViewFunnelWindow;
     entry_mode: ProViewFunnelEntryMode;
     order_mode: ProViewFunnelOrderMode;
@@ -103,6 +104,7 @@ export type ProViewPoint = {
 };
 
 export type ProViewPreviewResponse = {
+  measurement_population?: import("../utils/reportPopulation").ReportPopulation;
   current?: {
     label: string;
     points?: ProViewPoint[];
@@ -221,6 +223,7 @@ export function defaultProViewDefinition(
     funnel:
       kind === "funnel"
         ? {
+            semantic_version: 2,
             conversion_window: "7d",
             entry_mode: "closed",
             order_mode: "ordered",

@@ -19,7 +19,9 @@ import {
   type ProViewPreviewResponse,
   type ProViewWidgetDefinition,
 } from "~/types/pro-view";
-import { chartMotion, chartZoom, readChartTheme } from "~/utils/chartTheme";
+import { chartMotion, readChartTheme } from "~/utils/chartTheme";
+import { populationDescription } from "~/utils/reportPopulation";
+import { proViewPlotOption } from "~/utils/proViewChart";
 
 use([
   AriaComponent,
@@ -49,11 +51,15 @@ const props = withDefaults(
   },
 );
 
+const funnelProtected = computed(() => Boolean(props.definition?.funnel));
+
 function downloadTable() {
   const definition = props.definition;
   const preview = props.preview;
   if (!definition || !preview) return;
-  const rows: CsvCell[][] = [["Title", "Period", "Metric", "Group", "Value"]];
+  const rows: CsvCell[][] = [
+    ["Title", "Period", "Metric", "Group", "Value", "Population policy"],
+  ];
   for (const period of [preview.current, preview.previous]) {
     if (!period) continue;
     for (const point of period.points ?? [])
@@ -63,16 +69,20 @@ function downloadTable() {
         widgetMetricLabel(definition),
         point.period,
         point.value,
+        preview.measurement_population?.policy ?? "unavailable",
       ]);
     for (const step of period.steps ?? [])
       rows.push([
         definition.title,
         period.label,
-        definition.funnel?.conversion_window === "same_session"
-          ? "Estimated sessions reaching step"
-          : "Estimated visitors reaching step",
+        `${
+          definition.funnel?.conversion_window === "same_session"
+            ? "Estimated sessions reaching step"
+            : "Estimated visitors reaching step"
+        } · funnel v${definition.funnel?.semantic_version ?? 1}`,
         step.name,
         step.count,
+        preview.measurement_population?.policy ?? "unavailable",
       ]);
   }
   for (const point of preview.map ?? [])
@@ -82,6 +92,7 @@ function downloadTable() {
       widgetMetricLabel(definition),
       point.name,
       point.value,
+      preview.measurement_population?.policy ?? "unavailable",
     ]);
   downloadCsv("owleye-pro-view.csv", rows);
 }
@@ -209,135 +220,18 @@ function buildOption(): EChartsCoreOption {
     },
   };
 
-  if (
-    (definition.visualization === "pie" ||
-      definition.visualization === "donut") &&
-    !["visitors", "sessions"].includes(definition.metric ?? "events")
-  ) {
-    const isDonut = definition.visualization === "donut";
-    const hasPrevious = Boolean(preview.previous?.points?.length);
-    const series: EChartsCoreOption[] = [];
-    const currentData = (preview.current?.points ?? []).map((point) => ({
-      name: point.period,
-      value: point.value,
-    }));
-    series.push({
-      data: currentData,
-      label: { color: theme.text, formatter: "{b}" },
-      name: preview.current?.label ?? "Current",
-      radius: hasPrevious
-        ? isDonut
-          ? ["56%", "76%"]
-          : ["50%", "76%"]
-        : isDonut
-          ? ["48%", "74%"]
-          : [0, "74%"],
-      type: "pie",
-    });
-    if (hasPrevious) {
-      series.push({
-        data: preview.previous!.points!.map((point) => ({
-          name: point.period,
-          value: point.value,
-        })),
-        itemStyle: { opacity: 0.54 },
-        label: { show: false },
-        name: preview.previous!.label,
-        radius: ["24%", "44%"],
-        type: "pie",
-      });
-    }
-    return {
-      ...shared,
-      legend: {
-        bottom: 0,
-        textStyle: { color: theme.text },
-      },
-      series,
-    };
-  }
-
-  const periods = Array.from(
-    new Set([
-      ...(preview.current?.points?.map((point) => point.period) ?? []),
-      ...(preview.previous?.points?.map((point) => point.period) ?? []),
-    ]),
-  );
-  const seriesType = ["pie", "donut"].includes(definition.visualization)
-    ? "bar"
-    : definition.visualization;
-  const makeSeries = (
-    period: ProViewPreviewResponse["current"],
-    color: string,
-  ) => {
-    if (!period?.points) return null;
-    const byPeriod = new Map(
-      period.points.map((point) => [point.period, point.value] as const),
-    );
-    if (seriesType === "scatter") {
-      return {
-        data: periods.map((label, index) => [
-          index,
-          byPeriod.get(label) ?? null,
-        ]),
-        itemStyle: { color },
-        name: period.label,
-        symbolSize: 11,
-        type: "scatter" as const,
-      };
-    }
-    return {
-      data: periods.map((label) => byPeriod.get(label) ?? null),
-      itemStyle: { color },
-      lineStyle: {
-        cap: "round" as const,
-        color,
-        join: "round" as const,
-        shadowBlur: 12,
-        shadowColor: color,
-        width: 3,
-      },
-      name: period.label,
-      showSymbol: seriesType === "bar" || periods.length === 1,
-      smooth: seriesType === "line" ? 0.34 : false,
-      type: seriesType as "bar" | "line",
-    };
-  };
   return {
     ...shared,
-    dataZoom:
-      definition.breakdown &&
-      definition.breakdown !== "time" &&
-      periods.length <= 8
-        ? []
-        : chartZoom(periods.length, theme),
-    grid: { bottom: 112, containLabel: true, left: 8, right: 12, top: 28 },
-    legend: { bottom: 0, textStyle: { color: theme.text } },
-    series: [
-      makeSeries(preview.current, theme.series[0] ?? "#3d5afe"),
-      makeSeries(preview.previous, theme.series[1] ?? "#007d84"),
-    ].filter(Boolean),
-    xAxis: {
-      axisLabel: { color: theme.text, hideOverlap: true },
-      axisLine: { lineStyle: { color: theme.axis } },
-      axisTick: { show: false },
-      data: periods,
-      type: "category",
-    },
-    yAxis: {
-      axisLabel: { color: theme.text },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      minInterval: 1,
-      splitLine: { lineStyle: { color: theme.grid } },
-      type: "value",
-    },
+    ...proViewPlotOption(definition, preview, theme),
   };
 }
 </script>
 
 <template>
-  <section class="preview-stage" aria-labelledby="pro-preview-title">
+  <section
+    class="preview-stage chart-panel-surface chart-panel-padded"
+    aria-labelledby="pro-preview-title"
+  >
     <header>
       <div>
         <p>Query preview</p>
@@ -415,9 +309,17 @@ function buildOption(): EChartsCoreOption {
       class="preview-result"
     >
       <p class="funnel-definition-note">
-        Counts are estimates using the first qualifying entry in the period.
-        Later attempts do not restart this funnel. Missing or withheld steps are
-        not evidence of zero activity.
+        <template v-if="definition.funnel?.semantic_version === 2">
+          v2 estimates use one best valid attempt per cohort, preferring a
+          completed attempt, then the furthest stage and earliest entry. Exact
+          order excludes passive duration and performance packets.
+        </template>
+        <template v-else>
+          v1 estimates use the first qualifying entry in the period. Later
+          attempts do not restart this legacy funnel.
+        </template>
+        Missing or withheld steps are not evidence of zero activity.
+        {{ populationDescription(preview?.measurement_population?.policy) }}
       </p>
       <FunnelResults
         v-for="(period, index) in [preview?.current, preview?.previous].filter(
@@ -434,13 +336,20 @@ function buildOption(): EChartsCoreOption {
     </div>
 
     <div v-else-if="preview" class="preview-state">
+      <p v-if="funnelProtected">
+        Every stage requires at least five distinct visitors before this funnel
+        can be shown. A withheld result does not establish zero activity.
+      </p>
       <span class="state-mark" aria-hidden="true">—</span>
       <strong>{{
         definition?.kind === "funnel"
-          ? "No matching funnel entries"
+          ? "No reportable funnel stages"
           : "No matching data"
       }}</strong>
-      <span
+      <span v-if="funnelProtected">
+        Try a broader date range or check the first step and filters.
+      </span>
+      <span v-else
         >The query completed, but no matching activity was found in the selected
         periods. Check
         {{
@@ -493,27 +402,7 @@ function buildOption(): EChartsCoreOption {
 
 <style scoped>
 .preview-stage {
-  --preview-border: #34363d;
-  --chart-text: #c4c5c0;
-  --chart-axis: #737780;
-  --chart-grid: #34363d;
-  --chart-2: #63cbd0;
   min-width: 0;
-  border: 2px solid #111214;
-  border-radius: 20px;
-  color: #c4c5c0;
-  background:
-    radial-gradient(circle at 92% 8%, rgb(61 90 254 / 0.3), transparent 18rem),
-    linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px),
-    #111214;
-  background-size:
-    auto,
-    28px 28px,
-    28px 28px,
-    auto;
-  padding: clamp(16px, 3vw, 24px);
-  box-shadow: 6px 6px 0 #3d5afe;
 }
 
 header,
@@ -696,11 +585,6 @@ footer {
 }
 
 @media (max-width: 520px) {
-  .preview-stage {
-    padding: 14px;
-    box-shadow: 3px 3px 0 #3d5afe;
-  }
-
   .preview-chart,
   .preview-state {
     min-height: 330px;

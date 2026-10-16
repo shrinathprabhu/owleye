@@ -16,6 +16,7 @@ pub mod models;
 pub mod privacy;
 pub mod public_dashboard;
 pub mod rate_limit;
+pub(crate) mod report_population;
 pub mod retention;
 pub mod routes;
 pub mod rules;

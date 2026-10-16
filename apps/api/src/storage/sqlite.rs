@@ -193,7 +193,11 @@ async fn initialize(pool: &SqlitePool) -> anyhow::Result<()> {
     apply_baseline_schema(pool).await?;
     sqlx::query("INSERT INTO app_schema_migrations (version, name) VALUES (?, ?)")
         .bind(CURRENT_SCHEMA_VERSION)
-        .bind("self_hosted_baseline")
+        .bind(if version == 8 {
+            "campaign_attribution_fields"
+        } else {
+            "self_hosted_baseline"
+        })
         .execute(pool)
         .await?;
     Ok(())
@@ -223,7 +227,7 @@ async fn apply_baseline_schema(pool: &SqlitePool) -> anyhow::Result<()> {
     Ok(())
 }
 
-const CURRENT_SCHEMA_VERSION: i64 = 8;
+const CURRENT_SCHEMA_VERSION: i64 = 9;
 
 async fn migrate_site_memberships(pool: &SqlitePool) -> anyhow::Result<()> {
     const MIGRATION_KEY: &str = "migration.site_memberships_v1";
@@ -330,6 +334,16 @@ async fn add_compat_columns(pool: &SqlitePool) -> anyhow::Result<()> {
     migrate_auth_and_onboarding_columns(pool).await?;
 
     for column in [
+        ColumnDef {
+            table: "campaigns",
+            name: "term",
+            ddl: "term TEXT NOT NULL DEFAULT ''",
+        },
+        ColumnDef {
+            table: "campaigns",
+            name: "content",
+            ddl: "content TEXT NOT NULL DEFAULT ''",
+        },
         ColumnDef {
             table: "users",
             name: "status",
@@ -1258,6 +1272,47 @@ const SQLITE_INDEXES: &[&str] = &[
 #[cfg(test)]
 mod catalog_tests {
     use super::*;
+    #[tokio::test]
+    async fn campaign_attribution_fields_upgrade_previous_schema_without_enabling_or_rewriting_data(
+    ) {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        for query in [
+            "ALTER TABLE campaigns DROP COLUMN term",
+            "ALTER TABLE campaigns DROP COLUMN content",
+            "DELETE FROM app_schema_migrations",
+            "INSERT INTO app_schema_migrations(version,name) VALUES(8,'before_five_tags')",
+        ] {
+            sqlx::query(query).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO users(id,email) VALUES('campaign-owner','campaign@example.test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO sites(id,tracking_id,name,domain) VALUES('campaign-site','owl_campaign','Campaign','campaign.example')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO campaigns(id,site_id,created_by_user_id,name,campaign_key,source,medium,destination_url) VALUES('legacy-campaign','campaign-site','campaign-owner','Launch','launch','newsletter','email','https://campaign.example/')").execute(&pool).await.unwrap();
+        initialize(&pool).await.unwrap();
+        initialize(&pool).await.unwrap();
+        let legacy: (String, String, String) = sqlx::query_as(
+            "SELECT campaign_key,term,content FROM campaigns WHERE id='legacy-campaign'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(legacy, ("launch".into(), "".into(), "".into()));
+        let columns:Vec<String>=sqlx::query_scalar("SELECT name FROM pragma_table_info('campaigns') WHERE name IN ('term','content') ORDER BY name").fetch_all(&pool).await.unwrap();
+        assert_eq!(columns, vec!["content", "term"]);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM campaigns")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        let version: i64 = sqlx::query_scalar("SELECT max(version) FROM app_schema_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    }
+
     #[tokio::test]
     async fn catalog_large_batches_preserve_atomicity_across_statement_chunks() {
         let pool = connect("sqlite::memory:").await.unwrap();

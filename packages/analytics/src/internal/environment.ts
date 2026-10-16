@@ -1,8 +1,8 @@
 import type { OwlEnvironment, OwlPage } from "../types";
 import { truncateUtf8 } from "./bounds";
+import { campaignSearch } from "./campaigns";
 
 const BROWSER_MAX_BYTES = 128;
-const CAMPAIGN_VALUE_MAX_BYTES = 200;
 const HOST_MAX_BYTES = 255;
 const LANGUAGE_MAX_BYTES = 64;
 const PAGE_PATH_MAX_BYTES = 2_048;
@@ -11,7 +11,6 @@ const PAGE_URL_MAX_BYTES = 4_096;
 const TIMEZONE_MAX_BYTES = 128;
 
 export interface PageCaptureOptions {
-  captureCampaigns?: boolean;
   captureHash?: boolean;
   captureQuery?: boolean;
 }
@@ -37,7 +36,7 @@ export function getPage(
       : undefined,
     host: truncateUtf8(host, HOST_MAX_BYTES),
     path: truncateUtf8(pathname || "/", PAGE_PATH_MAX_BYTES),
-    referrer: sanitizeUrl(referrer, options),
+    referrer: sanitizeUrl(referrer, options, false),
     referrer_host: parseHost(referrer),
     search: pageSearch(search, options),
     title:
@@ -102,13 +101,14 @@ function parseHost(value: string | undefined): string | undefined {
 function sanitizeUrl(
   value: string | undefined,
   options: PageCaptureOptions,
+  includeCampaigns = true,
 ): string | undefined {
   if (!value) return undefined;
 
   try {
     const url = new URL(value, window.location.href);
     if (!options.captureQuery) {
-      url.search = options.captureCampaigns ? campaignSearch(url.search) : "";
+      url.search = includeCampaigns ? campaignSearch(url.search) : "";
     }
     if (!options.captureHash) url.hash = "";
     return truncateUtf8(url.toString(), PAGE_URL_MAX_BYTES);
@@ -124,31 +124,7 @@ function pageSearch(
   if (options.captureQuery) {
     return boundedOptional(search, PAGE_PATH_MAX_BYTES);
   }
-  if (!options.captureCampaigns) return undefined;
   return campaignSearch(search) || undefined;
-}
-
-function campaignSearch(search: string): string {
-  const captured = new URLSearchParams();
-  const seen = new Set<string>();
-  for (const [key, value] of new URLSearchParams(search)) {
-    const normalizedKey = key.toLocaleLowerCase();
-    if (
-      normalizedKey === "utm_source" ||
-      normalizedKey === "utm_medium" ||
-      normalizedKey === "utm_campaign"
-    ) {
-      if (seen.has(normalizedKey)) continue;
-      seen.add(normalizedKey);
-      captured.append(
-        normalizedKey,
-        truncateUtf8(value, CAMPAIGN_VALUE_MAX_BYTES),
-      );
-      if (seen.size === 3) break;
-    }
-  }
-  const value = captured.toString();
-  return value ? `?${value}` : "";
 }
 
 let cachedTimezone: string | undefined;

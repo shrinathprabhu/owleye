@@ -1,7 +1,7 @@
 export const trafficMetricLabels = {
   pageviews: "Page views",
-  visitors: "Unique visitors",
-  events: "Events",
+  visitors: "Estimated visitors",
+  events: "Tracked events",
   sessions: "Sessions",
 } as const;
 

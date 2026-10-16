@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
           No events in the last 30 minutes. New activity will appear here as it
           arrives. If you expected traffic, check the app’s SDK setup.
         </p>
-        <template v-else>
+        <div v-else class="chart-panel-surface live-chart-panel">
           <svg
             viewBox="0 0 600 150"
             role="img"
@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
               :y="140 - (point[metric] / peak) * 125"
               width="16"
               :height="(point[metric] / peak) * 125"
-              rx="2"
+              rx="8"
             >
               <title>
                 {{ time(point.at) }} · {{ point[metric] }}
@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
           </details>
-        </template>
+        </div>
       </section>
       <div class="live-breakdowns">
         <section
@@ -483,17 +483,27 @@ select {
   width: 100%;
   height: auto;
   min-height: 140px;
-  color: var(--text-secondary);
+  color: var(--chart-text);
 }
 .live-chart rect {
-  fill: #3d5afe;
+  fill: var(--chart-1, #d8ff52);
+}
+.live-chart-panel {
+  height: auto;
+  padding: var(--chart-panel-padding);
+}
+.live-chart-panel .live-note {
+  color: var(--chart-text);
+}
+.live-chart-panel summary {
+  color: var(--chart-1, #d8ff52);
 }
 .chart-axis {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   font-size: 0.78rem;
-  color: var(--text-secondary);
+  color: var(--chart-text);
 }
 .live-breakdowns {
   display: grid;

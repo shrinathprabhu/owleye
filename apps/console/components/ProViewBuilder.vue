@@ -151,7 +151,7 @@ function createDraft() {
   for (const step of definition.funnel?.steps ?? []) {
     step.condition.property_filters ??= { filters: [], logic: "and" };
   }
-  if (definition.funnel) definition.funnel.entry_mode = "closed";
+  if (definition.funnel) definition.funnel.semantic_version ??= 1;
   return definition;
 }
 
@@ -223,6 +223,7 @@ function startFunnel(template: "pages" | "success" | "content") {
 function addFunnelStep() {
   if ((draft.value.funnel?.steps.length ?? 0) >= 10) return;
   draft.value.funnel ??= {
+    semantic_version: 2,
     conversion_window: "7d",
     entry_mode: "closed",
     order_mode: "ordered",
@@ -576,6 +577,7 @@ function draftId() {
                   ),
               )"
               :key="type"
+              class="console-selectable-card"
               :aria-pressed="draft.visualization === type"
               type="button"
               @click="setChartType(type)"
@@ -640,6 +642,16 @@ function draftId() {
             {{ funnelConfig.order_mode }} order
           </summary>
           <div class="funnel-controls">
+            <label>
+              <span>Attempt definition</span>
+              <ConsoleDropdown v-model="funnelConfig.semantic_version">
+                <option :value="2">v2 · best valid attempt</option>
+                <option :value="1">v1 · first entry only (legacy)</option>
+              </ConsoleDropdown>
+              <small
+                >Changing this definition can change historical results.</small
+              >
+            </label>
             <label>
               <span>Conversion window</span>
               <ConsoleDropdown v-model="funnelConfig.conversion_window">
@@ -1140,12 +1152,6 @@ legend {
   gap: 3px;
   border-radius: 12px;
   padding: 8px;
-}
-
-.chart-type-grid button[aria-pressed="true"] {
-  color: #fffef9;
-  background: #3d5afe;
-  box-shadow: 3px 3px 0 #151515;
 }
 
 .chart-type-grid button:disabled {

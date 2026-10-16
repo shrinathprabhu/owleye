@@ -156,6 +156,11 @@ fn validate_chart_filters(filters: &Value) -> Result<(), ApiError> {
 }
 
 pub(super) fn validate_funnel(funnel: &FunnelDefinition) -> Result<(), ApiError> {
+    if !matches!(funnel.semantic_version, 1 | 2) {
+        return Err(ApiError::BadRequest(
+            "Funnel semantic_version must be 1 or 2".into(),
+        ));
+    }
     if !matches!(
         funnel.conversion_window.as_str(),
         "same_session" | "1h" | "1d" | "7d" | "30d"

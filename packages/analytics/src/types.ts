@@ -29,19 +29,15 @@ export interface OwlConfig {
   mock?: boolean;
   /**
    * Include the current URL query string in page and referrer fields.
-   * Query strings are excluded by default because they commonly contain
-   * identifiers and other sensitive values.
+   * Arbitrary query strings are excluded by default. Only bounded, non-personal
+   * campaign tags are captured automatically.
    *
    * @default false
    */
   captureQuery?: boolean;
   /**
-   * Include only `utm_source`, `utm_medium`, and `utm_campaign` from the
-   * current URL. This keeps arbitrary query parameters excluded while making
-   * explicitly opted-in campaign attribution available to analytics.
-   * `captureQuery` takes precedence when both options are enabled.
-   *
-   * @default false
+   * @deprecated Campaign tags are captured automatically. This legacy option is
+   * ignored, including `false`; remove it from new integrations.
    */
   captureCampaigns?: boolean;
   /**
@@ -59,7 +55,7 @@ export interface OwlConfig {
    */
   respectGlobalPrivacyControl?: boolean;
   /**
-   * OwlEye API base URL. Override for self-hosting, a configured proxy, or testing.
+   * OwlEye API base URL. Set a custom API origin or a tested same-origin path.
    *
    * @default "https://api.owleye.dev"
    */

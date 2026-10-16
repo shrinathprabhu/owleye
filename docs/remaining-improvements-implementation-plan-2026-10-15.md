@@ -1,5 +1,7 @@
 # OwlEye self-hosted: remaining improvements implementation plan
 
+> 16 October update: the newly authorized SDK 1.0.3 release supersedes this document's opt-in three-tag campaign policy and earlier no-SDK-release assessment. Five bounded UTMs are automatic; arbitrary query/fragment capture remains opt-in. See `packages/analytics/CHANGELOG.md`.
+
 **Date:** 15 October 2026  
 **Status:** Planning only. No additional feature implemented by this document.  
 **Source:** [Implementation ledger](improvements-implementation-2026-10-14.md), reviewed alongside the private edition's matching ledger and original item definitions.

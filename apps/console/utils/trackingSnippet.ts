@@ -1,3 +1,5 @@
+import { ANALYTICS_SDK_VERSION } from "./optionalTrackingSnippet.ts";
+
 export function trackingSetupSnippet(siteId: string, apiBase: string) {
   const server =
     apiBase.trim() ||
@@ -23,16 +25,16 @@ export function trackingSetupPrompt(siteId: string, apiBase: string) {
 
 Public tracking ID: ${JSON.stringify(siteId)}
 OwlEye API base URL: ${JSON.stringify(server)}
-SDK reference: https://github.com/shrinathprabhu/owleye/blob/v1.0.2/packages/analytics/README.md
+SDK reference: https://github.com/shrinathprabhu/owleye/blob/v${ANALYTICS_SDK_VERSION}/packages/analytics/README.md
 CDN reference: https://owleye.dev/docs/cdn/
 
-For a bundled app, install @owleye/analytics@1.0.2 and initialize useAnalytics from that package once in a browser-only entrypoint with this tracking ID and { server: the API base URL above }. Keep initialization out of server rendering and avoid duplicate instances during navigation or component remounts. Initial page views and pathname navigation are automatic. Query/hash routing requires explicit configuration; memory routers require manual pageview calls. Follow the SDK reference.
+For a bundled app, install @owleye/analytics@${ANALYTICS_SDK_VERSION} and initialize useAnalytics from that package once in a browser-only entrypoint with this tracking ID and { server: the API base URL above }. Keep initialization out of server rendering and avoid duplicate instances during navigation or component remounts. Initial page views and pathname navigation are automatic. Query/hash routing requires explicit configuration; memory routers require manual pageview calls. Follow the SDK reference.
 
 For a plain HTML site without a bundler, use the documented CDN integration instead, with the same tracking ID and data-owleye-server set to the API base URL above. Use only one installation method. Do not install both CDN and npm tracking.
 
-Keep query strings and URL fragments excluded and respect the SDK's Global Privacy Control default. Preserve any existing consent gate; do not initialize tracking before it permits analytics. Do not add cookies, local storage, or other persistent visitor identifiers. Never put secrets, account emails, or personal data into event properties or URLs.
+Keep full query and fragment capture disabled. SDK 1.0.3 captures the five bounded UTM fields automatically, with no captureCampaigns option. Use only broad non-personal campaign labels and respect the SDK's Global Privacy Control default. Preserve any existing consent gate; do not initialize tracking before it permits analytics. Do not add cookies, local storage, or other persistent visitor identifiers. Never put secrets, account emails, or personal data into event properties or URLs.
 
-Start with page analytics only. Add custom events, campaigns, rules, or performance tracking only if requested, following the SDK reference. If optional trackers are added, pass the same server configuration to each. Custom events allow at most 10 combined properties, using only strings, finite numbers, and booleans. Do not emit a sample signup event on page load.
+Start with page analytics only. Campaign attribution is automatic. Add custom events, rules, or performance tracking only if requested, following the SDK reference. If optional trackers are added, pass the same server configuration to each. Custom events allow at most 10 combined properties, using only strings, finite numbers, and booleans. Do not emit a sample signup event on page load.
 
 Check that the deployed website domain is allowed in this app's OwlEye settings. If the project has a Content Security Policy, update only the directives needed for the chosen integration; do not broadly weaken it. Run the project's relevant checks and explain how to verify a real page view in OwlEye. Report any steps you cannot verify; do not claim ingestion succeeded without checking it.`;
 }

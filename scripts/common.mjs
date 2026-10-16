@@ -14,6 +14,17 @@ import { createServer } from "node:net";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const data = join(root, ".owleye");
 export const envPath = join(data, "config.json");
+export async function verifyNodeVersion(version = process.versions.node) {
+  const expected = (await readFile(join(root, ".nvmrc"), "utf8"))
+    .trim()
+    .replace(/^v/, "");
+  if (!/^\d+\.\d+\.\d+$/.test(expected))
+    throw new Error(".nvmrc must pin one exact Node.js version.");
+  if (version !== expected)
+    throw new Error(
+      `Install Node.js ${expected} from .nvmrc; found ${version}. Run nvm install and nvm use, then ./setup.sh --check. See https://nodejs.org/en/download.`,
+    );
+}
 export function run(command, args = [], options = {}) {
   return new Promise((yes, no) => {
     const child = spawn(command, args, {
@@ -46,13 +57,7 @@ export async function prerequisites() {
     throw new Error(
       `Install prerequisites before setup: ${missing.join(", ")}. No system packages were installed.\nInstallation instructions: docs/SELF_HOSTING.md#installing-prerequisites\nhttps://github.com/shrinathprabhu/owleye/blob/HEAD/docs/SELF_HOSTING.md#installing-prerequisites\nAfter installing, reopen your terminal and run ./setup.sh --check.`,
     );
-  if (
-    Number(process.versions.node.split(".")[0]) !== 26 ||
-    Number(process.versions.node.split(".")[1]) < 2
-  )
-    throw new Error(
-      "Install Node.js 26.2 or newer in the Node 26 release line: https://nodejs.org/en/download. Then run ./setup.sh --check.",
-    );
+  await verifyNodeVersion();
   const rust = spawnSync("rustc", ["--version"], {
     encoding: "utf8",
   }).stdout.match(/rustc (\d+)\.(\d+)/);
@@ -67,9 +72,15 @@ export async function prerequisites() {
   const pnpm = spawnSync("pnpm", ["--version"], {
     encoding: "utf8",
   }).stdout.trim();
-  if (pnpm !== "10.28.1")
+  const { packageManager } = JSON.parse(
+    await readFile(join(root, "package.json"), "utf8"),
+  );
+  const expectedPnpm = /^pnpm@(\d+\.\d+\.\d+)$/.exec(packageManager ?? "")?.[1];
+  if (!expectedPnpm)
+    throw new Error("package.json must pin one exact pnpm version.");
+  if (pnpm !== expectedPnpm)
     throw new Error(
-      "Install pnpm 10.28.1 (npm install -g pnpm@10.28.1). See https://pnpm.io/10.x/installation. Then run ./setup.sh --check.",
+      `Install pnpm ${expectedPnpm} (npm install -g pnpm@${expectedPnpm}); found ${pnpm}. See https://pnpm.io/installation. Then run ./setup.sh --check.`,
     );
 }
 export async function config() {

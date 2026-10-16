@@ -573,7 +573,7 @@ function submit() {
           :disabled="readOnly"
           type="checkbox"
         />
-        <span>Enable immediately</span>
+        <span>Enable for new page loads</span>
       </label>
       <label class="check-field">
         <input

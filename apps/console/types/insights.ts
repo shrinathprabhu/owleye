@@ -1,3 +1,12 @@
+export type CampaignVariant = {
+  source: string;
+  medium: string;
+  term: string;
+  content: string;
+  views: number;
+  visitors: number;
+  conversions: number;
+};
 export type CampaignItem = {
   campaign_key: string;
   conversions: number;
@@ -7,6 +16,10 @@ export type CampaignItem = {
   medium: string;
   name: string;
   source: string;
+  term?: string;
+  content?: string;
+  variants?: CampaignVariant[];
+  variants_withheld?: boolean;
   tracking_url: string | null;
   updated_at: string | null;
   views: number;
@@ -40,6 +53,9 @@ export type PerformanceMetricSummary = {
   p95: number;
   rating: "good" | "needs_improvement" | "poor";
   samples: number;
+  good_samples?: number | null;
+  needs_improvement_samples?: number | null;
+  poor_samples?: number | null;
 };
 export type PerformancePoint = {
   date: string;

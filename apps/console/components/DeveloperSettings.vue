@@ -609,11 +609,12 @@ function formatDate(value: string | null) {
               <code>GET {{ settings.endpoints.stats }}</code>
               <span class="status-badge neutral">stats:read</span>
             </div>
-            <button class="text-button" type="button" @click="copy(statsCurl)">
-              Copy curl
-            </button>
           </div>
-          <pre><code>{{ statsCurl }}</code></pre>
+          <SetupCodeBlock
+            label="Aggregate statistics · curl"
+            :code="statsCurl"
+            language="shell"
+          />
           <p>Read aggregate totals and chart series for this app.</p>
         </section>
         <section>
@@ -622,11 +623,12 @@ function formatDate(value: string | null) {
               <code>GET {{ settings.endpoints.events }}</code>
               <span class="status-badge neutral">events:read</span>
             </div>
-            <button class="text-button" type="button" @click="copy(eventsCurl)">
-              Copy curl
-            </button>
           </div>
-          <pre><code>{{ eventsCurl }}</code></pre>
+          <SetupCodeBlock
+            label="Bounded events · curl"
+            :code="eventsCurl"
+            language="shell"
+          />
           <p>
             Use <code>pagination.next_before</code> and
             <code>pagination.next_event_id</code> as <code>before</code> and
@@ -639,11 +641,12 @@ function formatDate(value: string | null) {
               <code>POST {{ settings.endpoints.prompt }}</code>
               <span class="status-badge neutral">ai:prompt</span>
             </div>
-            <button class="text-button" type="button" @click="copy(promptCurl)">
-              Copy curl
-            </button>
           </div>
-          <pre><code>{{ promptCurl }}</code></pre>
+          <SetupCodeBlock
+            label="AI question · curl"
+            :code="promptCurl"
+            language="shell"
+          />
           <p>
             Consumes one available app/member prompt. The prompt body is never
             stored.

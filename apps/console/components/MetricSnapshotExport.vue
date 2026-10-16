@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { metricWidgetSvg } from "~/utils/metricWidget";
+import { chartWidgetSvg, type SnapshotMetric } from "~/utils/metricWidget";
+import type { ChartSnapshot } from "~/utils/chartSnapshot";
 const props = defineProps<{
-  label: string;
-  value?: number;
+  metrics: SnapshotMetric[];
+  capture: () => Promise<ChartSnapshot>;
   period: string;
   site: string;
   disabled?: boolean;
@@ -18,11 +19,19 @@ function download(blob: Blob, extension: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 async function exportSnapshot(format: "svg" | "png" | "code") {
-  if (props.value === undefined || props.disabled || busy.value) return;
+  if (!props.metrics.length || props.disabled || busy.value) return;
   busy.value = true;
   notice.value = "";
   try {
-    const svg = metricWidgetSvg({ ...props, value: props.value });
+    const context = {
+      metrics: props.metrics.map((metric) => ({ ...metric })),
+      period: props.period,
+      site: props.site,
+    };
+    const { svg, width, height } = chartWidgetSvg({
+      chart: await props.capture(),
+      ...context,
+    });
     if (format === "code") {
       await navigator.clipboard.writeText(svg);
       notice.value = "Static SVG code copied. It makes no API requests.";
@@ -38,8 +47,8 @@ async function exportSnapshot(format: "svg" | "png" | "code") {
         image.src = url;
         await image.decode();
         const canvas = document.createElement("canvas");
-        canvas.width = 1440;
-        canvas.height = 720;
+        canvas.width = width * 2;
+        canvas.height = height * 2;
         const context = canvas.getContext("2d");
         if (!context) throw new Error("Canvas unavailable");
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
@@ -63,11 +72,12 @@ async function exportSnapshot(format: "svg" | "png" | "code") {
 </script>
 <template>
   <details class="snapshot-export">
-    <summary>Export selected metric as a widget</summary>
+    <summary>Export this chart as a widget</summary>
     <p>
-      Share {{ label.toLowerCase() }} for {{ site }} and this date range. PNG,
-      SVG and embed code are static snapshots; only export data you intend to
-      share.
+      Share the {{ metrics.length }} selected series for {{ site }} with the
+      current chart zoom. PNG, SVG and embed code use the same static chart and
+      date range, with no live API access. Range visitor totals stay
+      deduplicated. Only export data you intend to share.
     </p>
     <div class="export-actions">
       <button
@@ -75,7 +85,7 @@ async function exportSnapshot(format: "svg" | "png" | "code") {
         :key="format"
         type="button"
         class="button secondary compact"
-        :disabled="disabled || value === undefined || busy"
+        :disabled="disabled || !metrics.length || busy"
         @click="exportSnapshot(format)"
       >
         {{

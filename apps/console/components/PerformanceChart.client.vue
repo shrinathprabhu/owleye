@@ -17,7 +17,15 @@ import { CanvasRenderer } from "echarts/renderers";
 
 import { useEChartLifecycle } from "~/composables/useEChartLifecycle";
 import type { PerformanceMetric, PerformancePoint } from "~/types/insights";
-import { chartMotion, chartZoom, readChartTheme } from "~/utils/chartTheme";
+import {
+  chartLegend,
+  chartLineShape,
+  chartLineStroke,
+  chartMotion,
+  chartPlotGrid,
+  chartZoom,
+  readChartTheme,
+} from "~/utils/chartTheme";
 
 type Option = ComposeOption<
   | AriaComponentOption
@@ -78,15 +86,18 @@ function renderChart() {
   const chart = ensureChart();
   if (!chart) return;
   const theme = readChartTheme(chartEl.value);
-  const colors = ["#b95300", "#ff842b", "#ffbd84"];
+  const colors = theme.series;
   const values = (key: "p50" | "p75" | "p95") =>
     props.points.map((point) => point[key]);
   const series = (["p50", "p75", "p95"] as const).map((key, index) => ({
-    areaStyle: key === "p75" ? { color: "rgba(255, 132, 43, 0.1)" } : undefined,
+    ...chartLineShape,
+    areaStyle:
+      key === "p75" ? { color: colors[index], opacity: 0.1 } : undefined,
     data: values(key),
     emphasis: { focus: "series" as const },
     itemStyle: { color: colors[index] },
     lineStyle: {
+      ...chartLineStroke,
       color: colors[index],
       shadowBlur: key === "p75" ? 12 : 4,
       shadowColor: colors[index],
@@ -96,7 +107,6 @@ function renderChart() {
     name: key,
     showSymbol: props.points.length === 1,
     symbolSize: 7,
-    smooth: 0.34,
     type: "line" as const,
   })) satisfies LineSeriesOption[];
 
@@ -108,16 +118,8 @@ function renderChart() {
         enabled: true,
       },
       dataZoom: chartZoom(props.points.length, theme),
-      grid: { bottom: 112, containLabel: true, left: 8, right: 14, top: 24 },
-      legend: {
-        bottom: 0,
-        itemHeight: 8,
-        itemWidth: 16,
-        textStyle: {
-          color: theme.text,
-          fontFamily: "Geist Variable, sans-serif",
-        },
-      },
+      grid: chartPlotGrid(true),
+      legend: chartLegend(theme),
       series,
       tooltip: {
         backgroundColor: theme.tooltipBg,
@@ -158,7 +160,7 @@ function formatValue(value: number) {
 </script>
 
 <template>
-  <div class="performance-chart-shell">
+  <div class="chart-frame chart-panel-surface performance-chart-shell">
     <div
       v-if="points.length"
       ref="chartEl"
@@ -182,6 +184,9 @@ function formatValue(value: number) {
 .performance-chart-shell,
 .performance-chart {
   min-height: 430px;
+}
+.performance-chart-shell {
+  height: auto;
 }
 .performance-chart {
   width: 100%;

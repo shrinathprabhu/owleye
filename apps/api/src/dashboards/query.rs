@@ -7,6 +7,8 @@ use super::{
 };
 use crate::{models::clickhouse_string, retention::ACTIVE_ROW_PREDICATE};
 
+mod funnel_v2;
+
 pub(super) fn chart_conditions(
     site_id: &str,
     source: &WidgetSource,
@@ -177,6 +179,9 @@ pub(super) fn funnel_query(
     period: &FunnelPeriodRange,
     now: DateTime<Utc>,
 ) -> String {
+    if funnel.semantic_version == 2 && funnel.entry_mode == "closed" {
+        return funnel_v2::query(site_id, funnel, period, now);
+    }
     let cohort = if funnel.conversion_window == "same_session" {
         "anon_session_id"
     } else {
@@ -194,11 +199,13 @@ pub(super) fn funnel_query(
     let site_id = clickhouse_string(site_id);
     let epoch = "toDateTime64(0, 3, 'UTC')";
     let first_condition = funnel_condition_sql(&funnel.steps[0].condition, None);
+    let population = crate::report_population::predicate(funnel.semantic_version.into());
 
     let mut ctes = vec![format!(
         r#"base_raw AS (
             SELECT
                 {cohort} AS cohort_id,
+                visitor_id,
                 event_id,
                 occurred_at,
                 event_type,
@@ -220,6 +227,7 @@ pub(super) fn funnel_query(
                 AND occurred_at >= {start}
                 AND occurred_at < {base_end}
                 AND {ACTIVE_ROW_PREDICATE}
+                AND {population}
         )"#
     )];
     ctes.push(
@@ -237,6 +245,7 @@ pub(super) fn funnel_query(
         r#"step_1 AS (
             SELECT
                 cohort_id,
+                argMinIf(visitor_id, sequence_index, ({first_condition}) AND occurred_at >= {start} AND occurred_at < {end}) AS step_1_visitor,
                 minIf(sequence_index, ({first_condition}) AND occurred_at >= {start} AND occurred_at < {end}) AS step_1_index,
                 minIf(occurred_at, ({first_condition}) AND occurred_at >= {start} AND occurred_at < {end}) AS step_1_at
             FROM base
@@ -251,6 +260,7 @@ pub(super) fn funnel_query(
                 [
                     format!("previous.step_{step}_index"),
                     format!("previous.step_{step}_at"),
+                    format!("previous.step_{step}_visitor"),
                 ]
             })
             .collect::<Vec<_>>();
@@ -277,6 +287,7 @@ pub(super) fn funnel_query(
                 SELECT
                     previous.cohort_id,
                     {group_fields},
+                    argMinIf(events.visitor_id, events.sequence_index, {progression}) AS step_{index}_visitor,
                     minIf(events.sequence_index, {progression}) AS step_{index}_index,
                     minIf(
                         events.occurred_at,
@@ -292,6 +303,7 @@ pub(super) fn funnel_query(
     let mut metrics = (1..=funnel.steps.len())
         .map(|index| format!("toUInt64(countIf(step_{index}_at > {epoch})) AS step_{index}_count"))
         .collect::<Vec<_>>();
+    metrics.extend((1..=funnel.steps.len()).map(|index|format!("toUInt64(uniqExactIf(step_{index}_visitor, step_{index}_at > {epoch} AND step_{index}_visitor != '')) AS step_{index}_visitors")));
     metrics.extend((1..funnel.steps.len()).flat_map(|index| {
         let next = index + 1;
         let condition = format!("step_{index}_at > {epoch} AND step_{next}_at > {epoch}");
@@ -463,6 +475,7 @@ mod tests {
     #[test]
     fn funnel_query_escapes_condition_ids_property_keys_and_values() {
         let funnel = FunnelDefinition {
+            semantic_version: 1,
             conversion_window: "1d".to_owned(),
             entry_mode: "closed".to_owned(),
             order_mode: "ordered".to_owned(),

@@ -346,3 +346,51 @@
     outline: 2px solid Highlight;
   }
 }
+
+/* Preserve native numeric validation/keyboard editing without decorative
+   steppers colliding with unit suffixes such as percentages. */
+:root body input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+:root body input[type="number"]::-webkit-inner-spin-button,
+:root body input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* One tactile selection treatment for metric and chart-shape cards. */
+:root body .console-selectable-card {
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+:root
+  body
+  .console-selectable-card:is(
+    [aria-pressed="true"],
+    [aria-checked="true"],
+    .is-selected
+  ) {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  box-shadow: 3px 3px 0 var(--text-primary);
+  transform: translate(-1px, -1px);
+}
+:root body .console-selectable-card:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 4px;
+}
+@media (forced-colors: active) {
+  :root
+    body
+    .console-selectable-card:is(
+      [aria-pressed="true"],
+      [aria-checked="true"],
+      .is-selected
+    ) {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}

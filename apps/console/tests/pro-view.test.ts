@@ -61,3 +61,12 @@ test("new chart controls survive save and reload", () => {
   assert.deepEqual(body.property_filters, chart.property_filters);
   assert.equal(breakdownLabel(chart), "Property: format");
 });
+
+test("new funnels use v2 while legacy saved definitions retain first-entry semantics", () => {
+  const funnel = defaultProViewDefinition("funnel");
+  assert.equal(funnel.funnel?.semantic_version, 2);
+  const legacy = structuredClone(funnel);
+  delete legacy.funnel!.semantic_version;
+  assert.equal(widgetRequestBody(legacy).funnel?.semantic_version, undefined);
+  assert.equal(widgetRequestBody(funnel).funnel?.semantic_version, 2);
+});

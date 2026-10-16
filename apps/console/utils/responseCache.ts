@@ -3,6 +3,7 @@ export class ResponseCache {
   private entries = new Map<string, { json: string; at: number }>();
   private scope = "";
   private bytes = 0;
+  private invalidations = new Set<() => void>();
   generation = 0;
   private now: () => number;
   constructor(now: () => number = Date.now) {
@@ -18,6 +19,11 @@ export class ResponseCache {
     this.entries.clear();
     this.bytes = 0;
     this.generation++;
+    for (const listener of this.invalidations) listener();
+  }
+  onInvalidate(listener: () => void) {
+    this.invalidations.add(listener);
+    return () => this.invalidations.delete(listener);
   }
   read<T>(key: string): { value: T; fresh: boolean } | undefined {
     const entry = this.entries.get(key);

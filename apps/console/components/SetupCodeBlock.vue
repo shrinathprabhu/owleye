@@ -1,5 +1,10 @@
 <script setup lang="ts">
-const props = defineProps<{ label: string; code: string }>();
+import type { CodeLanguage } from "~/utils/codeTokens";
+const props = defineProps<{
+  label: string;
+  code: string;
+  language?: CodeLanguage;
+}>();
 const emit = defineEmits<{ copied: [] }>();
 const state = ref<"idle" | "copied" | "failed">("idle");
 watch(
@@ -26,7 +31,10 @@ async function copy() {
         {{ state === "copied" ? "Copied ✓" : "Copy code" }}
       </button>
     </div>
-    <pre tabindex="0" :aria-label="label"><code>{{ code }}</code></pre>
+    <pre
+      tabindex="0"
+      :aria-label="label"
+    ><code><SyntaxCode :code="code" :language="language" /></code></pre>
     <span class="sr-only" role="status">{{
       state === "copied" ? "Code copied." : ""
     }}</span>

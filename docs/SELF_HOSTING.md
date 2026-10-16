@@ -6,8 +6,8 @@ Use Linux (recommended), macOS, or WSL2 with a supported native toolchain. Insta
 
 | Dependency | Required configuration |
 | --- | --- |
-| Node.js | 26.2 or newer within Node 26; required for setup and Nuxt builds |
-| pnpm | 10.28.1 (`npm install -g pnpm@10.28.1`) |
+| Node.js | 26.12.0, pinned in `.nvmrc`; required for setup and Nuxt builds |
+| pnpm | 12.11.2 (`npm install -g pnpm@12.11.2`) |
 | Rust / Cargo | 1.95 or newer; install through rustup |
 | C/C++ build tools | Linux `build-essential` / platform equivalent, or macOS Command Line Tools; SQLite bindings are built with Cargo |
 | ClickHouse | Running server with its HTTP endpoint reachable; `clickhouse` or `clickhouse-client` installed |
@@ -26,8 +26,8 @@ Use the upstream instructions for your operating system and CPU architecture. Th
 
 | Dependency | Installation instructions |
 | --- | --- |
-| Node.js | [Official download and installation options](https://nodejs.org/en/download). Select Node **26**, version **26.2 or newer**; the default LTS selection may be a different major. With an existing nvm installation, run `nvm install` and `nvm use` from this checkout. |
-| pnpm | After Node is active, run `npm install -g pnpm@10.28.1`. See [pnpm 10 installation](https://pnpm.io/10.x/installation). Avoid an unpinned `latest` install. |
+| Node.js | [Official download and installation options](https://nodejs.org/en/download). Select the pinned version **26.12.0**; the default LTS selection may be a different major. With an existing nvm installation, run `nvm install` and `nvm use` from this checkout. |
+| pnpm | After Node is active, run `npm install -g pnpm@12.11.2`. See [pnpm installation](https://pnpm.io/installation). Avoid an unpinned `latest` install. |
 | Rust / Cargo | Follow [rustup installation](https://rust-lang.org/tools/install/), then run `rustup toolchain install 1.95.0 --profile minimal`. This checkout selects its toolchain through `rust-toolchain.toml`. |
 | Build tools | Ubuntu/Debian: install `build-essential` through apt. macOS: run `xcode-select --install`; see [Apple Command Line Tools](https://developer.apple.com/documentation/xcode/installing-the-command-line-tools/). Other Linux distributions: install their C/C++ compiler and build-tool packages. |
 | ClickHouse | Follow [ClickHouse installation](https://clickhouse.com/docs/get-started/setup/install) for your platform, including the [Debian/Ubuntu server and client guide](https://clickhouse.com/docs/get-started/setup/self-managed/debian-ubuntu). Start the service and create a dedicated database and user before running setup. A working client command alone does not mean the server is ready. |
@@ -50,7 +50,25 @@ After installation, reopen your terminal so updated PATH entries take effect, re
 ./setup.sh
 ```
 
-`--check` checks CLI availability and the required Node, pnpm, and Rust versions; it does not validate the complete build toolchain, ClickHouse connectivity or credentials. Normal setup checks the ClickHouse connection before collecting administrator credentials, and the build verifies the native toolchain. No configuration or administrator account is created by `--check`.
+`--check` checks CLI availability and the exact pinned Node and pnpm versions and the required Rust version; it does not validate the complete build toolchain, ClickHouse connectivity or credentials. Normal setup checks the ClickHouse connection before collecting administrator credentials, and the build verifies the native toolchain. No configuration or administrator account is created by `--check`.
+
+### Moving an existing server to pnpm 12
+
+First put the reviewed migration revision on the server, preserving `.owleye/` and any local changes. The source must already contain the updated `packageManager` pin, workspace policy, and lockfile before installing dependencies. Do not run `./update.sh` with the previous pnpm version to perform this toolchain migration.
+
+As the installation owner, activate the checkout's Node version and install its exact pnpm version. With an existing nvm installation:
+
+```sh
+nvm install
+nvm use
+npm install --global "$(node -p 'require("./package.json").packageManager')"
+hash -r
+node scripts/check-package-manager.mjs
+pnpm install --frozen-lockfile
+./setup.sh --check
+```
+
+The current pin is pnpm **12.11.2**. Configure the same Node/pnpm PATH for any service that runs build or redeploy commands. Updating this build tool does not require restarting the running Rust server. When ready to deploy reviewed application changes, use `./redeploy.sh` separately; installing pnpm alone does not deploy them. Keep the lockfile committed unchanged after the frozen install; CI and SDK release checks verify this too.
 
 ## Setup
 
@@ -142,11 +160,11 @@ Before publishing a GitHub release:
    - Environment: `npm-publish`
    - Allowed actions: **allow direct `npm publish`**, not only staged publishing.
 3. Create the matching GitHub environment `npm-publish`. Any environment tag restrictions must allow the release tag; approve the job if required reviewers are configured. This workflow needs no npm token secret.
-4. Use an unused package version. The SDK release tag is `v1.0.2` (also accepted: `@owleye/analytics@1.0.2`) and must match `packages/analytics/package.json`. For subsequent releases, bump that manifest before committing and tagging. Published npm versions cannot be overwritten, including after a README edit.
+4. Use an unused package version. The SDK release tag is `v1.0.3` (also accepted: `@owleye/analytics@1.0.3`) and must match `packages/analytics/package.json`. For subsequent releases, bump that manifest before committing and tagging. Published npm versions cannot be overwritten, including after a README edit.
 5. Publish the GitHub release; a draft or a tag push alone does not trigger this workflow. It builds, tests, checks bundle sizes and package contents, then publishes from the SDK directory. Prereleases use npm's `next` tag; other releases use `latest`.
 6. Check the successful Actions run, then the npm package version, SDK README, source link and provenance attestation. Confirm all three versioned CDN files become available; CDN caches can take time to update. A failed run before publishing can be rerun after fixing configuration. Check npm first if the publish outcome is uncertain; a successful version must not be republished.
 
-The workflow uses a GitHub-hosted runner, Node 26, npm 11.5.1 or newer, `id-token: write`, and `npm publish --access public --provenance`. npm verifies the OIDC publisher against the repository, workflow and environment. Source metadata must continue to point to the public repository. The package must already exist and be managed by your npm account before configuring this trusted publisher. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and [npm package READMEs](https://docs.npmjs.com/about-package-readme-files/).
+The workflow uses a GitHub-hosted runner, the Node version pinned in `.nvmrc`, npm 11.5.1 or newer, `id-token: write`, and `npm publish --access public --provenance`. npm verifies the OIDC publisher against the repository, workflow and environment. Source metadata must continue to point to the public repository. The package must already exist and be managed by your npm account before configuring this trusted publisher. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and [npm package READMEs](https://docs.npmjs.com/about-package-readme-files/).
 
 ### Analytics and Console storage
 

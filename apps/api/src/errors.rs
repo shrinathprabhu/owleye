@@ -40,6 +40,9 @@ impl ApiError {
     /// displays can contain request URLs, database values, provider responses, or
     /// other operator secrets, so the HTTP boundary never logs them verbatim.
     fn diagnostic_kind(&self) -> &'static str {
+        if self.report_resource_message().is_some() {
+            return "report_resource_limit";
+        }
         match self {
             Self::BadRequest(_) => "bad_request",
             Self::Conflict(_) => "conflict",
@@ -59,6 +62,9 @@ impl ApiError {
     }
 
     fn status(&self) -> StatusCode {
+        if self.report_resource_message().is_some() {
+            return StatusCode::SERVICE_UNAVAILABLE;
+        }
         match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Conflict(_) => StatusCode::CONFLICT,
@@ -77,6 +83,9 @@ impl ApiError {
     }
 
     fn code(&self) -> &'static str {
+        if self.report_resource_message().is_some() {
+            return "service_unavailable";
+        }
         match self {
             Self::BadRequest(_) => "bad_request",
             Self::Conflict(_) => "conflict",
@@ -95,7 +104,17 @@ impl ApiError {
         }
     }
 
+    fn report_resource_message(&self) -> Option<&'static str> {
+        match self {
+            Self::Internal(error) => crate::storage::clickhouse::report_resource_message(error),
+            _ => None,
+        }
+    }
+
     fn public_message(&self) -> String {
+        if let Some(message) = self.report_resource_message() {
+            return message.into();
+        }
         match self {
             Self::BadRequest(message)
             | Self::Conflict(message)
@@ -125,6 +144,7 @@ impl IntoResponse for ApiError {
             Self::TooManyRequests {
                 retry_after_seconds,
             } => Some(*retry_after_seconds),
+            _ if self.report_resource_message().is_some() => Some(3),
             _ => None,
         };
 

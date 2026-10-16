@@ -13,9 +13,13 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version-file: .nvmrc
+      - name: Verify pinned package manager
+        run: node scripts/check-package-manager.mjs
       - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
       - run: rustup default 1.95.0
       - run: pnpm install --frozen-lockfile
+      - name: Verify dependency installation preserved the lockfile
+        run: git diff --exit-code -- pnpm-lock.yaml
       - run: pnpm --filter @owleye/analytics test
       - run: pnpm --filter @owleye/console test
       - run: pnpm --filter @owleye/console typecheck

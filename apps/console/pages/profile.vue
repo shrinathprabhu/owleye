@@ -26,7 +26,7 @@ function updateName(name: string) {
     :show-site-selector="false"
     v-slot="{ apiBase, demo, user }"
   >
-    <BentoGrid v-if="user && !demo" class="profile-bento">
+    <div v-if="user && !demo" class="profile-layout">
       <ReleaseNotice v-if="user.is_admin" />
       <AccountProfile @updated="updateName" />
       <AccountSecurity
@@ -34,7 +34,7 @@ function updateName(name: string) {
         :user="user"
         @changed="workspace.initialize"
       />
-    </BentoGrid>
+    </div>
     <p v-else class="empty-state">
       Profile changes are unavailable in this read-only workspace.
     </p>
@@ -42,8 +42,26 @@ function updateName(name: string) {
 </template>
 
 <style scoped>
-.profile-bento :deep(.profile-details-grid),
-.profile-bento :deep(.account-security-grid) {
+/* Account forms keep natural grid rows: async errors and security sections
+   must reserve their own height instead of sharing masonry measurements. */
+.profile-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+.profile-layout :deep(.profile-details-grid),
+.profile-layout :deep(.account-security-grid) {
   display: contents;
+}
+.profile-layout :deep(.management-card) {
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

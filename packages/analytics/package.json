@@ -1,7 +1,7 @@
 {
   "name": "@owleye/analytics",
-  "version": "1.0.2",
-  "description": "Privacy-preserving, cookie-free analytics SDK for OwlEye.",
+  "version": "1.0.3",
+  "description": "OwlEye analytics SDK: page views, custom events and dashboard-managed tracking rules.",
   "license": "MIT",
   "homepage": "https://owleye.dev/docs/sdk/",
   "repository": {
@@ -11,10 +11,12 @@
   },
   "keywords": [
     "analytics",
+    "web-analytics",
+    "product-analytics",
+    "events",
+    "funnels",
     "cookie-free",
-    "privacy",
-    "hosted-analytics",
-    "web-analytics"
+    "no-code-tracking"
   ],
   "type": "module",
   "main": "./dist/index.js",

@@ -4,7 +4,7 @@ useHead({ title: "Campaigns · OWLEYE" });
 
 <template>
   <ConsoleSectionShell
-    description="Create privacy-bounded UTM links and follow attributed visitors through conversion."
+    description="Create UTM links and compare attributed traffic and conversions."
     eyebrow="Acquisition"
     permission="analytics_read"
     title="Campaigns"

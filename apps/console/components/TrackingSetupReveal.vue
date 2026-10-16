@@ -29,8 +29,8 @@ const trackingSnippet = computed(() =>
     :id="recipeId"
     class="tracking-recipe-shared"
     kicker="Two tiny steps"
-    title="Track the useful stuff. Skip the surveillance lore."
-    description="Run this once in a browser entrypoint. Page views and SPA navigation are automatic; use track for product moments you care about."
+    title="Track the steps that lead to signup."
+    description="Run this once in a browser entrypoint for page views and pathname navigation. Use track for completed product actions; add the optional rules collector for dashboard-managed events."
   >
     <SetupCodeBlock
       label="01 · install"

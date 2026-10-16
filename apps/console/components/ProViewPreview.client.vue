@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { downloadCsv, type CsvCell } from "~/utils/csv";
-import {
-  BarChart,
-  FunnelChart,
-  LineChart,
-  PieChart,
-  ScatterChart,
-} from "echarts/charts";
+import { BarChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import {
   AriaComponent,
   DataZoomComponent,
@@ -25,14 +19,15 @@ import {
   type ProViewPreviewResponse,
   type ProViewWidgetDefinition,
 } from "~/types/pro-view";
-import { chartMotion, chartZoom, readChartTheme } from "~/utils/chartTheme";
+import { chartMotion, readChartTheme } from "~/utils/chartTheme";
+import { populationDescription } from "~/utils/reportPopulation";
+import { proViewPlotOption } from "~/utils/proViewChart";
 
 use([
   AriaComponent,
   BarChart,
   CanvasRenderer,
   DataZoomComponent,
-  FunnelChart,
   GridComponent,
   LegendComponent,
   LineChart,
@@ -56,11 +51,15 @@ const props = withDefaults(
   },
 );
 
+const funnelProtected = computed(() => Boolean(props.definition?.funnel));
+
 function downloadTable() {
   const definition = props.definition;
   const preview = props.preview;
   if (!definition || !preview) return;
-  const rows: CsvCell[][] = [["Title", "Period", "Metric", "Group", "Value"]];
+  const rows: CsvCell[][] = [
+    ["Title", "Period", "Metric", "Group", "Value", "Population policy"],
+  ];
   for (const period of [preview.current, preview.previous]) {
     if (!period) continue;
     for (const point of period.points ?? [])
@@ -70,14 +69,20 @@ function downloadTable() {
         widgetMetricLabel(definition),
         point.period,
         point.value,
+        preview.measurement_population?.policy ?? "unavailable",
       ]);
     for (const step of period.steps ?? [])
       rows.push([
         definition.title,
         period.label,
-        "Visitors reaching step",
+        `${
+          definition.funnel?.conversion_window === "same_session"
+            ? "Estimated sessions reaching step"
+            : "Estimated visitors reaching step"
+        } · funnel v${definition.funnel?.semantic_version ?? 1}`,
         step.name,
         step.count,
+        preview.measurement_population?.policy ?? "unavailable",
       ]);
   }
   for (const point of preview.map ?? [])
@@ -87,6 +92,7 @@ function downloadTable() {
       widgetMetricLabel(definition),
       point.name,
       point.value,
+      preview.measurement_population?.policy ?? "unavailable",
     ]);
   downloadCsv("owleye-pro-view.csv", rows);
 }
@@ -150,7 +156,12 @@ watch(
   () => [props.definition, props.error, props.loading, props.preview] as const,
   async () => {
     await nextTick();
-    if (!hasData.value || props.error || isMap.value) {
+    if (
+      !hasData.value ||
+      props.error ||
+      isMap.value ||
+      props.definition?.kind === "funnel"
+    ) {
       clearChart();
       return;
     }
@@ -165,7 +176,8 @@ function renderChart() {
     !props.preview ||
     !hasData.value ||
     props.error ||
-    isMap.value
+    isMap.value ||
+    props.definition.kind === "funnel"
   ) {
     return;
   }
@@ -208,187 +220,18 @@ function buildOption(): EChartsCoreOption {
     },
   };
 
-  if (definition.kind === "funnel") {
-    const cohorts = [preview.current, preview.previous].filter(
-      (cohort) => cohort?.steps?.length,
-    );
-    return {
-      ...shared,
-      legend: {
-        bottom: 0,
-        textStyle: { color: theme.text },
-      },
-      series: cohorts.map((cohort, index) => ({
-        data: cohort!.steps!.map((step) => ({
-          ...step,
-          value: step.count,
-        })),
-        gap: 4,
-        itemStyle: { opacity: index === 0 ? 1 : 0.58 },
-        label: {
-          color: theme.tooltipText,
-          fontWeight: 700,
-          formatter: (params: {
-            data?: { name?: string; overall_conversion?: number };
-          }) =>
-            `${params.data?.name ?? "Step"}\n${formatPercent(params.data?.overall_conversion ?? 0)} overall`,
-          position: "inside",
-        },
-        left: cohorts.length === 1 ? "10%" : index === 0 ? "4%" : "54%",
-        maxSize: "92%",
-        minSize: "24%",
-        name: cohort!.label,
-        sort: "none" as const,
-        top: 12,
-        type: "funnel" as const,
-        width: cohorts.length === 1 ? "80%" : "42%",
-      })),
-    };
-  }
-
-  if (
-    (definition.visualization === "pie" ||
-      definition.visualization === "donut") &&
-    !["visitors", "sessions"].includes(definition.metric ?? "events")
-  ) {
-    const isDonut = definition.visualization === "donut";
-    const hasPrevious = Boolean(preview.previous?.points?.length);
-    const series: EChartsCoreOption[] = [];
-    const currentData = (preview.current?.points ?? []).map((point) => ({
-      name: point.period,
-      value: point.value,
-    }));
-    series.push({
-      data: currentData,
-      label: { color: theme.text, formatter: "{b}" },
-      name: preview.current?.label ?? "Current",
-      radius: hasPrevious
-        ? isDonut
-          ? ["56%", "76%"]
-          : ["50%", "76%"]
-        : isDonut
-          ? ["48%", "74%"]
-          : [0, "74%"],
-      type: "pie",
-    });
-    if (hasPrevious) {
-      series.push({
-        data: preview.previous!.points!.map((point) => ({
-          name: point.period,
-          value: point.value,
-        })),
-        itemStyle: { opacity: 0.54 },
-        label: { show: false },
-        name: preview.previous!.label,
-        radius: ["24%", "44%"],
-        type: "pie",
-      });
-    }
-    return {
-      ...shared,
-      legend: {
-        bottom: 0,
-        textStyle: { color: theme.text },
-      },
-      series,
-    };
-  }
-
-  const periods = Array.from(
-    new Set([
-      ...(preview.current?.points?.map((point) => point.period) ?? []),
-      ...(preview.previous?.points?.map((point) => point.period) ?? []),
-    ]),
-  );
-  const seriesType = ["pie", "donut"].includes(definition.visualization)
-    ? "bar"
-    : definition.visualization;
-  const makeSeries = (
-    period: ProViewPreviewResponse["current"],
-    color: string,
-  ) => {
-    if (!period?.points) return null;
-    const byPeriod = new Map(
-      period.points.map((point) => [point.period, point.value] as const),
-    );
-    if (seriesType === "scatter") {
-      return {
-        data: periods.map((label, index) => [
-          index,
-          byPeriod.get(label) ?? null,
-        ]),
-        itemStyle: { color },
-        name: period.label,
-        symbolSize: 11,
-        type: "scatter" as const,
-      };
-    }
-    return {
-      data: periods.map((label) => byPeriod.get(label) ?? null),
-      itemStyle: { color },
-      lineStyle: {
-        cap: "round" as const,
-        color,
-        join: "round" as const,
-        shadowBlur: 12,
-        shadowColor: color,
-        width: 3,
-      },
-      name: period.label,
-      showSymbol: seriesType === "bar" || periods.length === 1,
-      smooth: seriesType === "line" ? 0.34 : false,
-      type: seriesType as "bar" | "line",
-    };
-  };
   return {
     ...shared,
-    dataZoom:
-      definition.breakdown &&
-      definition.breakdown !== "time" &&
-      periods.length <= 8
-        ? []
-        : chartZoom(periods.length, theme),
-    grid: { bottom: 112, containLabel: true, left: 8, right: 12, top: 28 },
-    legend: { bottom: 0, textStyle: { color: theme.text } },
-    series: [
-      makeSeries(preview.current, theme.series[0] ?? "#3d5afe"),
-      makeSeries(preview.previous, theme.series[1] ?? "#007d84"),
-    ].filter(Boolean),
-    xAxis: {
-      axisLabel: { color: theme.text, hideOverlap: true },
-      axisLine: { lineStyle: { color: theme.axis } },
-      axisTick: { show: false },
-      data: periods,
-      type: "category",
-    },
-    yAxis: {
-      axisLabel: { color: theme.text },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      minInterval: 1,
-      splitLine: { lineStyle: { color: theme.grid } },
-      type: "value",
-    },
+    ...proViewPlotOption(definition, preview, theme),
   };
-}
-
-function formatPercent(value: number) {
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
-}
-
-function formatDuration(value?: number | null) {
-  if (value === null || value === undefined) return "—";
-  if (value < 60_000) return `${Math.round(value / 1000)}s`;
-  if (value < 3_600_000) return `${Math.round(value / 60_000)}m`;
-  if (value < 86_400_000) {
-    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / 3_600_000)}h`;
-  }
-  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value / 86_400_000)}d`;
 }
 </script>
 
 <template>
-  <section class="preview-stage" aria-labelledby="pro-preview-title">
+  <section
+    class="preview-stage chart-panel-surface chart-panel-padded"
+    aria-labelledby="pro-preview-title"
+  >
     <header>
       <div>
         <p>Query preview</p>
@@ -461,60 +304,52 @@ function formatDuration(value?: number | null) {
       </template>
     </div>
 
+    <div
+      v-else-if="hasData && definition?.kind === 'funnel'"
+      class="preview-result"
+    >
+      <p class="funnel-definition-note">
+        <template v-if="definition.funnel?.semantic_version === 2">
+          v2 estimates use one best valid attempt per cohort, preferring a
+          completed attempt, then the furthest stage and earliest entry. Exact
+          order excludes passive duration and performance packets.
+        </template>
+        <template v-else>
+          v1 estimates use the first qualifying entry in the period. Later
+          attempts do not restart this legacy funnel.
+        </template>
+        Missing or withheld steps are not evidence of zero activity.
+        {{ populationDescription(preview?.measurement_population?.policy) }}
+      </p>
+      <FunnelResults
+        v-for="(period, index) in [preview?.current, preview?.previous].filter(
+          Boolean,
+        )"
+        :key="index"
+        :label="period!.label"
+        :steps="period!.steps ?? []"
+        :same-session="definition.funnel?.conversion_window === 'same_session'"
+      />
+    </div>
     <div v-else-if="hasData" class="preview-result">
       <div ref="chartEl" class="preview-chart"></div>
-      <div
-        v-if="definition?.kind === 'funnel' && preview?.current?.steps"
-        class="funnel-metrics"
-      >
-        <h3>{{ preview.current.label }} conversion receipt</h3>
-        <div class="funnel-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Step</th>
-                <th>
-                  {{
-                    definition.funnel?.conversion_window === "same_session"
-                      ? "Sessions"
-                      : "Anonymous visitors"
-                  }}
-                </th>
-                <th>From prior</th>
-                <th>Overall</th>
-                <th>Dropoff</th>
-                <th>Dropoff rate</th>
-                <th>Avg. to next</th>
-                <th>Median to next</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="step in preview.current.steps" :key="step.id">
-                <th>{{ step.name }}</th>
-                <td>{{ new Intl.NumberFormat().format(step.count) }}</td>
-                <td>{{ formatPercent(step.step_conversion) }}</td>
-                <td>{{ formatPercent(step.overall_conversion) }}</td>
-                <td>
-                  {{ new Intl.NumberFormat().format(step.dropoff_count) }}
-                </td>
-                <td>{{ formatPercent(step.dropoff_rate) }}</td>
-                <td>{{ formatDuration(step.avg_time_to_next_ms) }}</td>
-                <td>{{ formatDuration(step.median_time_to_next_ms) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
 
     <div v-else-if="preview" class="preview-state">
+      <p v-if="funnelProtected">
+        Every stage requires at least five distinct visitors before this funnel
+        can be shown. A withheld result does not establish zero activity.
+      </p>
       <span class="state-mark" aria-hidden="true">—</span>
       <strong>{{
         definition?.kind === "funnel"
-          ? "No matching funnel entries"
+          ? "No reportable funnel stages"
           : "No matching data"
       }}</strong>
-      <span
+      <span v-if="funnelProtected">
+        Try a broader date range or check the first step and filters.
+      </span>
+      <span v-else
         >The query completed, but no matching activity was found in the selected
         periods. Check
         {{
@@ -567,27 +402,7 @@ function formatDuration(value?: number | null) {
 
 <style scoped>
 .preview-stage {
-  --preview-border: #34363d;
-  --chart-text: #c4c5c0;
-  --chart-axis: #737780;
-  --chart-grid: #34363d;
-  --chart-2: #63cbd0;
   min-width: 0;
-  border: 2px solid #111214;
-  border-radius: 20px;
-  color: #c4c5c0;
-  background:
-    radial-gradient(circle at 92% 8%, rgb(61 90 254 / 0.3), transparent 18rem),
-    linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px),
-    #111214;
-  background-size:
-    auto,
-    28px 28px,
-    28px 28px,
-    auto;
-  padding: clamp(16px, 3vw, 24px);
-  box-shadow: 6px 6px 0 #3d5afe;
 }
 
 header,
@@ -644,6 +459,11 @@ h2 {
   min-width: 0;
 }
 
+.funnel-definition-note {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #b6b7bb;
+}
 .funnel-metrics {
   margin-top: 14px;
   border: 1px solid #34363d;
@@ -765,11 +585,6 @@ footer {
 }
 
 @media (max-width: 520px) {
-  .preview-stage {
-    padding: 14px;
-    box-shadow: 3px 3px 0 #3d5afe;
-  }
-
   .preview-chart,
   .preview-state {
     min-height: 330px;

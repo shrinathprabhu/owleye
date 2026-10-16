@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { ResponseCache } from "../utils/responseCache.ts";
+
+test("snapshots are fresh for 30s, stale for 5m, then removed", () => {
+  let now = 0;
+  const cache = new ResponseCache(() => now);
+  cache.write("report", { count: 0 });
+  assert.deepEqual(cache.read("report"), { value: { count: 0 }, fresh: true });
+  now = 30_000;
+  assert.equal(cache.read("report")?.fresh, false);
+  now = 300_001;
+  assert.equal(cache.read("report"), undefined);
+});
+test("identity/access changes clear snapshots and reject old in-flight writes", () => {
+  const cache = new ResponseCache();
+  cache.setScope("user-a:read");
+  const version = cache.generation;
+  cache.write("report", { count: 1 }, version);
+  cache.setScope("user-a:revoked");
+  cache.write("report", { count: 2 }, version);
+  assert.equal(cache.read("report"), undefined);
+  cache.setScope("user-b:read");
+  assert.equal(cache.read("report"), undefined);
+  cache.write("report", { count: 3 });
+  const beforeMutation = cache.generation;
+  cache.clear();
+  cache.write("report", { count: 4 }, beforeMutation);
+  assert.equal(cache.read("report"), undefined);
+});
+test("callers cannot mutate stored responses, and LRU/byte budgets are bounded", () => {
+  const cache = new ResponseCache();
+  const original = { count: 1 };
+  cache.write("original", original);
+  original.count = 8;
+  cache.read<typeof original>("original")!.value.count = 9;
+  assert.equal(cache.read<typeof original>("original")?.value.count, 1);
+  for (let i = 0; i < 32; i++) cache.write(String(i), { i });
+  assert.equal(cache.read("original"), undefined);
+  cache.read("0");
+  cache.write("new", {});
+  assert.ok(cache.read("0"));
+  assert.equal(cache.read("1"), undefined);
+  cache.clear();
+  for (let i = 0; i < 20; i++) cache.write(String(i), "x".repeat(100_000));
+  assert.equal(cache.read("0"), undefined);
+  assert.ok(cache.read("19"));
+  cache.write("oversized", "x".repeat(150_000));
+  assert.equal(cache.read("oversized"), undefined);
+});

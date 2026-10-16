@@ -2,8 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
 
-# Project-level pnpm settings belong here in pnpm 10. Keeping overrides under
-# package.json#pnpm makes pnpm ignore them in a workspace.
+# Keep workspace-wide dependency and install policies in this file.
 overrides:
   "@babel/core": 7.29.6
   "brace-expansion@2": 2.1.4
@@ -31,7 +30,15 @@ overrides:
 minimumReleaseAge: 1440
 blockExoticSubdeps: true
 
-# esbuild resolves its platform binary through optional dependencies;
-# OwlEye does not need to run its fallback downloader during installation.
-ignoredBuiltDependencies:
-  - esbuild
+# Keep installation and native toolchain management explicit. New dependency
+# build scripts must receive a reviewed allowBuilds decision.
+pmOnFail: error
+verifyDepsBeforeRun: error
+runtimeOnFail: ignore
+strictDepBuilds: true
+
+# Native binaries come from optional platform packages. Keep esbuild's fallback
+# downloader and Parcel's optional source build disabled during installation.
+allowBuilds:
+  esbuild: false
+  "@parcel/watcher": false

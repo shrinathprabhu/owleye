@@ -1,43 +1,14 @@
 <script setup lang="ts">
-import { BarChart } from "echarts/charts";
-import {
-  AriaComponent,
-  DataZoomComponent,
-  GridComponent,
-  TooltipComponent,
-} from "echarts/components";
-import { use, type EChartsCoreOption } from "echarts/core";
+import type { DimensionStat } from "~/types/stats";
 import {
   countryColor,
   countryLabel,
   type CountryGeometry,
 } from "~/utils/countryGeo";
-import { CanvasRenderer } from "echarts/renderers";
-
-import { useEChartLifecycle } from "~/composables/useEChartLifecycle";
-import type { DimensionStat } from "~/types/stats";
 import {
+  normalizeCountryCode,
   COUNTRY_CODES_BY_NAME,
-  normalizeCountryCode as toCountryCode,
 } from "~/utils/countryMap";
-import { chartMotion, readCssVariable } from "~/utils/chartTheme";
-
-type CountryDatum = {
-  code: string;
-  count: number;
-  label: string;
-};
-
-type GeoView = "bars" | "globe";
-
-use([
-  AriaComponent,
-  DataZoomComponent,
-  BarChart,
-  CanvasRenderer,
-  GridComponent,
-  TooltipComponent,
-]);
 
 const props = withDefaults(
   defineProps<{
@@ -56,405 +27,211 @@ const props = withDefaults(
     metricLabel: "Page views",
   },
 );
-
-const emit = defineEmits<{
-  retry: [];
-}>();
-
-const chartEl = ref<HTMLElement | null>(null);
-const view = ref<GeoView>("bars");
-const globeReady = ref(false);
+const emit = defineEmits<{ retry: [] }>();
+const geometry = shallowRef<CountryGeometry | null>(null);
+const showGlobe = ref(false);
 const globeLoading = ref(false);
 const globeError = ref("");
-const geometry = shallowRef<CountryGeometry | null>(null);
-const countryLabels = ref<Record<string, string>>({});
-const countryCodes = ref<Record<string, string>>({ ...COUNTRY_CODES_BY_NAME });
-
-const hasCountries = computed(() => props.countries.length > 0);
-const countryData = computed<CountryDatum[]>(() =>
+const selectedCountry = ref("");
+const focusCountry = ref("");
+const countryData = computed(() =>
   props.countries
     .filter((country) => country.count > 0)
     .map((country) => {
-      const raw = country.name.trim();
-      const code = normalizeCountryCode(raw);
+      const code = normalizeCountryCode(
+        country.name.trim(),
+        COUNTRY_CODES_BY_NAME,
+      );
       return {
         code,
+        name: code,
         count: country.count,
-        label: countryLabels.value[code] || countryLabel(code),
+        label: code === "OTHER" ? "Other" : countryLabel(code),
       };
     })
-    .sort((left, right) => right.count - left.count),
+    .sort((a, b) => b.count - a.count),
 );
-const maxValue = computed(() =>
+const hasCountries = computed(() => countryData.value.length > 0);
+const maximum = computed(() =>
   Math.max(1, ...countryData.value.map((country) => country.count)),
 );
-const chartLabel = computed(() => {
-  const summary = countryData.value
-    .slice(0, 5)
-    .map((country) => `${country.label}: ${country.count.toLocaleString()}`)
-    .join(", ");
-  return `${view.value === "globe" ? "Country globe" : "Country ranking"}. ${props.metricLabel}: ${summary}.`;
-});
-
-let globeController: AbortController | undefined;
-let requestedView: GeoView = "bars";
-
-const { clearChart, ensureChart, prefersReducedMotion } = useEChartLifecycle(
-  chartEl,
-  renderChart,
-  { observeTheme: true },
+const selected = computed(() =>
+  countryData.value.find((country) => country.code === selectedCountry.value),
 );
+let controller: AbortController | undefined;
+let media: MediaQueryList | undefined;
+let disposed = false;
 
-onMounted(async () => {
-  await nextTick();
-  renderChart();
-});
-
-watch(
-  () =>
-    [props.countries, props.error, props.loading, props.metricLabel] as const,
-  async () => {
-    await nextTick();
-    if (props.error || (!hasCountries.value && !props.loading)) {
-      clearChart();
-      return;
-    }
-    if (!props.loading) renderChart();
-  },
-);
-
-watch(view, async () => {
-  await nextTick();
-  renderChart();
-});
-
-onBeforeUnmount(() => {
-  globeController?.abort();
-});
-
+// The map is a static asset, loaded once per mounted report; selecting a country never requests data.
 async function loadGlobe() {
-  if (globeReady.value) return true;
-  if (globeLoading.value) return false;
+  if (geometry.value || globeLoading.value || disposed) return;
   globeError.value = "";
   globeLoading.value = true;
-
-  const assetUrl = "/maps/world-countries.json";
-  const controller = new AbortController();
-  globeController = controller;
-
+  controller = new AbortController();
   try {
-    const response = await fetch(assetUrl, { signal: controller.signal });
-    if (!response.ok)
-      throw new Error(`Globe request failed with ${response.status}`);
-    const geo = (await response.json()) as CountryGeometry;
-    geometry.value = geo;
-    countryLabels.value = Object.fromEntries(
-      geo.features.map((feature) => [
-        feature.properties.name,
-        feature.properties.label,
-      ]),
-    );
-    countryCodes.value = {
-      ...COUNTRY_CODES_BY_NAME,
-      ...Object.fromEntries(
-        geo.features.map((feature) => [
-          feature.properties.label,
-          feature.properties.name,
-        ]),
-      ),
-    };
-    globeReady.value = true;
-    return true;
+    const response = await fetch("/maps/world-countries.json", {
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Map unavailable");
+    const data = (await response.json()) as CountryGeometry;
+    if (!disposed) geometry.value = data;
   } catch (error) {
-    if (isAbortError(error)) return false;
-    globeError.value =
-      "Globe view could not be loaded. The ranked view still works.";
-    globeReady.value = false;
-    if (view.value === "globe") view.value = "bars";
-    return false;
+    if (
+      !disposed &&
+      !(error instanceof DOMException && error.name === "AbortError")
+    )
+      globeError.value =
+        "The globe could not load. Country rankings are still available.";
   } finally {
-    if (globeController === controller) globeController = undefined;
-    globeLoading.value = false;
+    if (!disposed) globeLoading.value = false;
   }
 }
-
-async function setView(nextView: GeoView) {
-  requestedView = nextView;
-  if (nextView !== "bars" && !globeReady.value && !(await loadGlobe())) return;
-  if (requestedView !== nextView) return;
-  view.value = nextView;
+function chooseCountry(code: string) {
+  selectedCountry.value = code;
+  focusCountry.value = code;
 }
-
-function renderChart() {
+function updateViewport() {
+  if (media?.matches && hasCountries.value) {
+    showGlobe.value = true;
+    void loadGlobe();
+  }
+}
+function toggleGlobe() {
+  showGlobe.value = !showGlobe.value;
+  if (showGlobe.value) void loadGlobe();
+}
+watch(countryData, () => {
   if (
-    !hasCountries.value ||
-    props.loading ||
-    props.error ||
-    view.value === "globe"
-  )
-    return;
-  const currentChart = ensureChart();
-  if (!currentChart || !chartEl.value) return;
-
-  const reduceMotion = prefersReducedMotion();
-  const colors = geoColors(chartEl.value);
-  const option = barOption(colors, reduceMotion);
-
-  currentChart.setOption(option, {
-    lazyUpdate: false,
-    notMerge: true,
-  });
-}
-
-function sharedOption(reduceMotion: boolean): EChartsCoreOption {
-  return {
-    ...chartMotion(reduceMotion, 760),
-    aria: { description: chartLabel.value, enabled: true },
-  };
-}
-
-function barOption(
-  colors: ReturnType<typeof geoColors>,
-  reduceMotion: boolean,
-): EChartsCoreOption {
-  return {
-    ...sharedOption(reduceMotion),
-    dataZoom:
-      countryData.value.length > 12
-        ? [
-            {
-              type: "slider",
-              yAxisIndex: 0,
-              right: 0,
-              width: 12,
-              startValue: 0,
-              endValue: 11,
-              filterMode: "filter",
-              showDetail: false,
-              brushSelect: false,
-            },
-            {
-              type: "inside",
-              yAxisIndex: 0,
-              startValue: 0,
-              endValue: 11,
-              zoomOnMouseWheel: false,
-              moveOnMouseWheel: true,
-            },
-          ]
-        : [],
-    grid: { bottom: 22, left: 8, right: 68, top: 14, containLabel: true },
-    series: [
-      {
-        barMaxWidth: 28,
-        data: countryData.value.map((country) => ({
-          groupId: country.code,
-          id: country.code,
-          name: country.code,
-          value: country.count,
-          itemStyle: { color: countryColor(country.count, maxValue.value) },
-        })),
-        id: "country-pageviews",
-        label: {
-          color: colors.text,
-          fontFamily: "Geist Mono Variable, monospace",
-          formatter: "{c}",
-          position: "right",
-          show: true,
-        },
-        name: props.metricLabel,
-        realtimeSort: false,
-        type: "bar",
-      },
-    ],
-    tooltip: {
-      backgroundColor: colors.tooltipBg,
-      borderColor: colors.grid,
-      borderWidth: 1,
-      textStyle: { color: colors.tooltipText },
-      renderMode: "richText",
-      formatter: (params: { name: string; value: unknown }) =>
-        `${countryLabels.value[params.name] || countryLabel(params.name)}\n${Number.isFinite(Number(params.value)) ? Number(params.value).toLocaleString() + " " + props.metricLabel.toLowerCase() : "No recorded " + props.metricLabel.toLowerCase()}`,
-      trigger: "item",
-      valueFormatter: (value: unknown) => Number(value).toLocaleString(),
-    },
-    xAxis: {
-      axisLabel: { color: colors.text },
-      axisLine: { lineStyle: { color: colors.axis } },
-      axisTick: { show: false },
-      splitLine: { lineStyle: { color: colors.grid } },
-      type: "value",
-    },
-    yAxis: {
-      axisLabel: {
-        color: colors.text,
-        formatter: (code: string) =>
-          countryLabels.value[code] || countryLabel(code),
-        fontWeight: 650,
-        width: 150,
-        overflow: "truncate",
-      },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      data: countryData.value.map((country) => country.code),
-      inverse: true,
-      type: "category",
-    },
-  };
-}
-
-function normalizeCountryCode(value: string) {
-  return toCountryCode(value, countryCodes.value);
-}
-
-function geoColors(host: HTMLElement) {
-  return {
-    axis: readCssVariable(host, "--chart-axis", "#8f887d"),
-    grid: readCssVariable(host, "--chart-grid", "#d8d2c4"),
-    text: readCssVariable(host, "--chart-text", "#6a6861"),
-    tooltipBg: readCssVariable(host, "--chart-tooltip-bg", "#111214"),
-    tooltipText: readCssVariable(host, "--chart-tooltip-text", "#f7f7f2"),
-  };
-}
-
-function isAbortError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    error.name === "AbortError"
-  );
-}
+    !countryData.value.some((country) => country.code === selectedCountry.value)
+  ) {
+    selectedCountry.value = "";
+    focusCountry.value = "";
+  }
+  updateViewport();
+});
+onMounted(() => {
+  media = matchMedia("(min-width: 760px)");
+  media.addEventListener("change", updateViewport);
+  updateViewport();
+});
+onBeforeUnmount(() => {
+  disposed = true;
+  controller?.abort();
+  media?.removeEventListener("change", updateViewport);
+});
 </script>
 
 <template>
-  <div class="geo-chart-shell">
+  <div class="geo-chart-shell" :aria-busy="loading">
     <div class="geo-toolbar">
-      <div class="view-switcher" aria-label="Country chart view">
-        <button
-          type="button"
-          :aria-pressed="view === 'bars'"
-          :class="{ active: view === 'bars' }"
-          @click="setView('bars')"
-        >
-          Ranked
-        </button>
-        <button
-          type="button"
-          :aria-pressed="view === 'globe'"
-          :class="{ active: view === 'globe' }"
-          :disabled="globeLoading"
-          @click="setView('globe')"
-        >
-          {{ globeLoading ? "Loading globe…" : "Globe" }}
-        </button>
-      </div>
-      <span v-if="globeError" class="geo-note">{{ globeError }}</span>
-      <span v-else-if="globeLoading" class="geo-note">Preparing globe…</span>
-      <span
-        v-else-if="view === 'globe' && !hasCountries && !loading && !error"
-        class="geo-note"
-        >No country traffic in this range</span
+      <span class="geo-note">{{ metricLabel }} by country</span>
+      <button
+        v-if="hasCountries && !error"
+        class="text-button"
+        type="button"
+        :aria-expanded="showGlobe"
+        @click="toggleGlobe"
       >
-      <span v-else-if="!globeReady" class="geo-note"
-        >{{ metricLabel }} by country</span
-      >
-      <span v-else class="geo-note">{{ metricLabel }} · darker means more</span>
+        {{ showGlobe ? "Hide globe" : "Show globe" }}
+      </button>
     </div>
-
-    <div
-      class="chart-frame geo-chart-frame"
-      :style="view === 'bars' ? { minHeight: '180px' } : undefined"
-    >
-      <div v-if="loading && !hasCountries" class="chart-state" role="status">
-        <span class="state-orbit" aria-hidden="true"></span>
-        <strong>Loading country traffic</strong>
-        <span>Reading country totals from the API.</span>
-      </div>
-
-      <div v-else-if="error" class="chart-state error" role="alert">
-        <span class="state-symbol" aria-hidden="true">!</span>
-        <strong>Country traffic is unavailable</strong>
-        <span>{{ error }}</span>
-        <button class="text-button" type="button" @click="emit('retry')">
-          Try again
-        </button>
-      </div>
-
-      <div
-        v-else-if="!hasCountries && view === 'bars'"
-        class="chart-state"
-        role="status"
+    <div v-if="loading && !hasCountries" class="chart-state" role="status">
+      <span class="state-orbit" aria-hidden="true"></span
+      ><strong>Loading country traffic</strong
+      ><span>Reading country totals from the API.</span>
+    </div>
+    <div v-else-if="error" class="chart-state error" role="alert">
+      <strong>Country traffic is unavailable</strong><span>{{ error }}</span
+      ><button class="text-button" type="button" @click="emit('retry')">
+        Try again
+      </button>
+    </div>
+    <div v-else-if="!hasCountries" class="chart-state" role="status">
+      <strong>No country traffic in this range</strong
+      ><span>{{ emptyMessage }}</span>
+    </div>
+    <div v-else class="country-comparison" :class="{ 'with-globe': showGlobe }">
+      <section
+        v-if="showGlobe"
+        class="country-map"
+        aria-label="Interactive country globe"
       >
-        <span class="state-symbol" aria-hidden="true">◎</span>
-        <strong>No country traffic in this range</strong>
-        <span>{{ emptyMessage }}</span>
-      </div>
-
-      <div
-        v-else
-        ref="chartEl"
-        class="chart-surface geo-chart-surface"
-        :style="
-          view === 'bars'
-            ? {
-                height: `${Math.max(180, Math.min(520, countryData.length * 44 + 80))}px`,
-                minHeight: '180px',
-              }
-            : undefined
-        "
-        :class="{ 'geo-chart-hidden': view === 'globe' }"
-        role="img"
-        :aria-busy="loading"
-        :aria-label="chartLabel"
-      ></div>
-
-      <Transition name="globe-fade">
         <LazyCountryGlobe
-          v-if="
-            view === 'globe' && geometry && !error && (!loading || hasCountries)
-          "
-          :metric-label="metricLabel"
+          v-if="geometry"
           :geometry="geometry"
-          :countries="
-            countryData.map((country) => ({
-              name: country.code,
-              count: country.count,
-            }))
-          "
-          :active="view === 'globe'"
+          :countries="countryData"
+          :active="showGlobe"
+          :metric-label="metricLabel"
+          :selected-country="selectedCountry"
+          :focus-country="focusCountry"
+          @select="selectedCountry = $event"
         />
-      </Transition>
-      <p v-if="loading && hasCountries" class="sr-only" role="status">
-        Updating country traffic for the selected date range.
-      </p>
-
-      <table v-if="hasCountries && !loading && !error" class="sr-only">
-        <caption>
-          Country
+        <div v-else class="chart-state" role="status">
+          <span
+            v-if="globeLoading"
+            class="state-orbit"
+            aria-hidden="true"
+          ></span
+          ><span>{{ globeError || "Preparing globe…" }}</span
+          ><button
+            v-if="globeError"
+            type="button"
+            class="text-button"
+            @click="loadGlobe"
+          >
+            Retry globe
+          </button>
+        </div>
+      </section>
+      <div class="country-ranking">
+        <p class="ranking-help">
+          Hover, focus or tap a country to highlight it.
+        </p>
+        <ul
+          aria-label="Country ranking"
+          class="country-list report-list-scroll"
+          tabindex="0"
+        >
+          <li v-for="country in countryData" :key="country.code">
+            <button
+              type="button"
+              class="country-row"
+              :class="{ selected: selectedCountry === country.code }"
+              :aria-pressed="selectedCountry === country.code"
+              @pointerenter="chooseCountry(country.code)"
+              @focus="chooseCountry(country.code)"
+              @click="chooseCountry(country.code)"
+            >
+              <span class="country-name">{{ country.label }}</span
+              ><strong>{{ country.count.toLocaleString() }}</strong>
+              <span class="country-track" aria-hidden="true"
+                ><span
+                  :style="{
+                    width: `${(country.count / maximum) * 100}%`,
+                    background: countryColor(country.count, maximum),
+                  }"
+                ></span
+              ></span>
+            </button>
+          </li>
+        </ul>
+        <p class="country-selection" role="status">
           {{
-            metricLabel.toLowerCase()
+            selected
+              ? `${selected.label}: ${selected.count.toLocaleString()} ${metricLabel.toLowerCase()}${selected.code === "UNKNOWN" ? " · location unavailable" : ""}`
+              : "Country totals stay visible while you explore."
           }}
-          totals
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Country</th>
-            <th scope="col">{{ metricLabel }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="country in countryData" :key="country.code">
-            <th scope="row">{{ country.label }}</th>
-            <td>{{ country.count }}</td>
-          </tr>
-        </tbody>
-      </table>
+        </p>
+      </div>
     </div>
-    <div class="geo-footer">
+    <p v-if="loading && hasCountries" class="sr-only" role="status">
+      Updating country traffic for the selected date range.
+    </p>
+    <div v-if="hasCountries && !error" class="geo-footer">
       <span
         >{{
-          countryData.filter((country) => country.code !== "UNKNOWN").length
+          countryData.filter((country) => /^[A-Z]{2}$/.test(country.code))
+            .length
         }}
         countries · {{ metricLabel.toLowerCase()
         }}<span
@@ -462,9 +239,8 @@ function isAbortError(error: unknown) {
         >
           · Unknown locations remain in the ranking</span
         ></span
-      >
-      <a
-        v-if="globeReady"
+      ><a
+        v-if="geometry && showGlobe"
         href="https://www.amcharts.com/"
         target="_blank"
         rel="noopener noreferrer"
@@ -473,49 +249,115 @@ function isAbortError(error: unknown) {
     </div>
   </div>
 </template>
+
 <style scoped>
 .geo-chart-shell {
-  grid-template-columns: minmax(0, 1fr);
+  display: grid;
+  gap: 12px;
   min-width: 0;
 }
-.geo-chart-shell > * {
-  min-width: 0;
-}
-.geo-chart-frame {
-  position: relative;
-}
-.geo-chart-hidden {
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-}
-.geo-chart-surface {
-  transition: opacity 250ms ease;
-}
+.geo-toolbar,
 .geo-footer {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 0.72rem;
-  color: var(--text-tertiary);
+  gap: 12px;
+}
+.geo-note,
+.geo-footer,
+.ranking-help,
+.country-selection {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
 }
 .geo-footer a {
   color: inherit;
 }
-.globe-fade-enter-active,
-.globe-fade-leave-active {
-  transition: opacity 250ms ease;
+.country-comparison {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
 }
-.globe-fade-enter-from,
-.globe-fade-leave-to {
-  opacity: 0;
+.country-comparison.with-globe {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 1fr);
 }
-@media (prefers-reduced-motion: reduce) {
-  .geo-chart-surface,
-  .globe-fade-enter-active,
-  .globe-fade-leave-active {
-    transition: none;
+.country-map {
+  position: relative;
+  min-width: 0;
+  min-height: 370px;
+}
+.country-ranking {
+  min-width: 0;
+}
+.ranking-help {
+  margin: 0 0 10px;
+}
+.country-list {
+  display: grid;
+  gap: 5px;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+}
+.country-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 14px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.country-row.selected {
+  background: var(--bg-accent-subtle);
+  border-color: var(--accent-primary, #4057ff);
+}
+.country-row:focus-visible {
+  outline: 2px solid var(--accent-primary, #4057ff);
+  outline-offset: 1px;
+}
+.country-name {
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+.country-row strong {
+  font:
+    650 0.85rem "Geist Mono Variable",
+    monospace;
+}
+.country-track {
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--border-subtle);
+}
+.country-track > span {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+  border-radius: inherit;
+}
+.country-selection {
+  min-height: 2.5em;
+  margin: 10px 0 0;
+}
+@media (max-width: 759px) {
+  .country-comparison.with-globe {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .country-ranking {
+    order: -1;
+  }
+  .country-map {
+    min-height: 330px;
   }
 }
 </style>

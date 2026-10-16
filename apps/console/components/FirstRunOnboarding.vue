@@ -43,7 +43,6 @@ onMounted(() => {
 const createdSite = ref<CreatedSite | null>(null);
 const pending = ref(false);
 const error = ref("");
-const copyState = ref<"copied" | "failed" | "idle">("idle");
 
 const trackingSnippet = computed(() => {
   if (!createdSite.value) return "";
@@ -100,15 +99,6 @@ async function createFirstApp() {
       method: "POST",
     });
   }, "Your app could not be created. Check the name and domains.");
-}
-
-async function copySnippet() {
-  try {
-    await navigator.clipboard.writeText(trackingSnippet.value);
-    copyState.value = "copied";
-  } catch {
-    copyState.value = "failed";
-  }
 }
 
 async function run(action: () => Promise<void>, fallback: string) {
@@ -274,11 +264,12 @@ async function run(action: () => Promise<void>, fallback: string) {
         <div class="onboarding-copy">
           <p class="eyebrow">App created</p>
           <h1 id="onboarding-heading">
-            {{ createdSite.name }} is ready to observe.
+            {{ createdSite.name }} is ready for analytics.
           </h1>
           <p>
-            This is real configuration from the API, not a browser-made demo.
-            Keep the tracking ID in your client setup.
+            Install this page-analytics snippet, then add the optional rules
+            collector to manage click, form and visibility events from your
+            dashboard. Keep this tracking ID in your client setup.
           </p>
           <div class="created-identifiers">
             <span>Tracking ID</span>
@@ -298,13 +289,7 @@ async function run(action: () => Promise<void>, fallback: string) {
         </div>
 
         <div class="onboarding-snippet">
-          <div class="snippet-heading">
-            <span>Client entry</span>
-            <button type="button" @click="copySnippet">
-              {{ copyState === "copied" ? "Copied ✓" : "Copy code" }}
-            </button>
-          </div>
-          <pre><code>{{ trackingSnippet }}</code></pre>
+          <SetupCodeBlock label="Client entry" :code="trackingSnippet" />
           <p class="tracking-help">
             Custom events accept up to 10 string, number, or boolean properties,
             including global fields.
@@ -319,9 +304,6 @@ async function run(action: () => Promise<void>, fallback: string) {
             :site-id="createdSite.tracking_id"
             :api-base="apiBase"
           />
-          <p v-if="copyState === 'failed'" role="status">
-            Clipboard access was blocked. Select and copy the snippet manually.
-          </p>
         </div>
       </div>
 

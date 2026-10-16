@@ -209,7 +209,7 @@ async fn run_prompt_with_context(
             text: sanitize::redact(&turn.text),
         })
         .collect();
-    let result = tokio::time::timeout(Duration::from_secs(85), async {
+    let result = tokio::time::timeout(Duration::from_secs(85), state.clickhouse.with_report_scope(&site.tracking_id, 3, async {
         let fence = state.clickhouse.ingestion_fence(&site.tracking_id);
         let guard = fence.read_owned().await;
         let catalog = insights::discover(state, &site.tracking_id).await?;
@@ -255,7 +255,7 @@ async fn run_prompt_with_context(
             .join("\n");
         let (answer, explanation_source) = provider::explain(&state.settings.ai, &question, &evidence).await?;
         Ok::<_, ApiError>((answer, explanation_source, evidence, guard, true))
-    })
+    }))
     .await
     .unwrap_or_else(|_| {
         Err(ApiError::ServiceUnavailable(

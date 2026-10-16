@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { geoContains, geoGraticule10, geoOrthographic, geoPath } from "d3-geo";
+import {
+  geoCentroid,
+  geoContains,
+  geoGraticule10,
+  geoOrthographic,
+  geoPath,
+} from "d3-geo";
+import { shortestRotation } from "~/utils/globeFocus";
 import type { DimensionStat } from "~/types/stats";
 import { countryColor, type CountryGeometry } from "~/utils/countryGeo";
 
@@ -8,9 +15,12 @@ const props = defineProps<{
   countries: DimensionStat[];
   active: boolean;
   metricLabel: string;
+  selectedCountry?: string;
+  focusCountry?: string;
 }>();
 const canvas = ref<HTMLCanvasElement | null>(null);
-const rotating = ref(true);
+const emit = defineEmits<{ select: [code: string] }>();
+const rotating = ref(false);
 const tooltip = ref<{
   code: string;
   label: string;
@@ -49,6 +59,11 @@ let moved = false;
 let resize: ResizeObserver | undefined;
 let visibility: IntersectionObserver | undefined;
 let motion: MediaQueryList | undefined;
+let focusTween: {
+  from: [number, number];
+  to: [number, number];
+  started: number;
+} | null = null;
 
 function draw() {
   const context = canvas.value?.getContext("2d");
@@ -81,8 +96,12 @@ function draw() {
     const value = values.value.get(feature.properties.name) ?? 0;
     context.fillStyle = value ? countryColor(value, maximum.value) : "#f0eee5";
     context.fill();
-    context.strokeStyle = "rgba(255,255,255,.85)";
-    context.lineWidth = 0.55;
+    context.strokeStyle =
+      feature.properties.name === props.selectedCountry
+        ? "rgba(76,102,135,.48)"
+        : "rgba(255,255,255,.85)";
+    context.lineWidth =
+      feature.properties.name === props.selectedCountry ? 0.7 : 0.55;
     context.stroke();
   }
   // Limb shading adds depth while keeping country fills comparable.
@@ -123,6 +142,23 @@ function animate(time: number) {
   frame = 0;
   for (const [key, until] of keyUntil) if (until <= time) keyUntil.delete(key);
   const activeKeys = new Set([...heldKeys, ...keyUntil.keys()]);
+  if (!props.active || dragging || !visible || document.hidden) {
+    previous = 0;
+    focusTween = null;
+    return;
+  }
+  if (focusTween) {
+    const progress = Math.min(1, (time - focusTween.started) / 420);
+    const ease = 1 - (1 - progress) ** 3;
+    projection.rotate([
+      focusTween.from[0] + (focusTween.to[0] - focusTween.from[0]) * ease,
+      focusTween.from[1] + (focusTween.to[1] - focusTween.from[1]) * ease,
+    ]);
+    draw();
+    if (progress < 1) frame = requestAnimationFrame(animate);
+    else focusTween = null;
+    return;
+  }
   const keyboardActive = activeKeys.size > 0;
   const autoActive = rotating.value && !over.value && !pinned.value;
   if (
@@ -153,14 +189,23 @@ function animate(time: number) {
   frame = requestAnimationFrame(animate);
 }
 function motionChanged() {
-  if (motion?.matches) rotating.value = false;
+  if (motion?.matches) {
+    rotating.value = false;
+    if (focusTween) {
+      projection.rotate(focusTween.to);
+      focusTween = null;
+      draw();
+    }
+  }
   schedule();
 }
 function schedule() {
   cancelAnimationFrame(frame);
   frame = 0;
   previous = 0;
-  if (props.active) frame = requestAnimationFrame(animate);
+  if (props.active && visible && !document.hidden)
+    frame = requestAnimationFrame(animate);
+  else focusTween = null;
 }
 function point(event: PointerEvent) {
   const box = canvas.value!.getBoundingClientRect();
@@ -190,6 +235,7 @@ function showCountry(next: number[]) {
 function down(event: PointerEvent) {
   if (event.button !== 0) return;
   clearKeys();
+  focusTween = null;
   dragging = true;
   moved = false;
   lastPoint = point(event);
@@ -230,6 +276,7 @@ function up(event: PointerEvent) {
   if (!moved) {
     showCountry(point(event));
     pinned.value = Boolean(tooltip.value);
+    if (tooltip.value) emit("select", tooltip.value.code);
   }
   schedule();
 }
@@ -251,7 +298,27 @@ function keyboard(event: KeyboardEvent) {
   }
   if (!arrowKeys.has(event.key)) return;
   event.preventDefault();
+  if (motion?.matches) {
+    focusTween = null;
+    rotating.value = false;
+    const rotation = projection.rotate();
+    projection.rotate([
+      rotation[0] +
+        (event.key === "ArrowRight" ? 8 : event.key === "ArrowLeft" ? -8 : 0),
+      Math.max(
+        -80,
+        Math.min(
+          80,
+          rotation[1] +
+            (event.key === "ArrowUp" ? 8 : event.key === "ArrowDown" ? -8 : 0),
+        ),
+      ),
+    ]);
+    draw();
+    return;
+  }
   if (heldKeys.has(event.key)) return;
+  focusTween = null;
   heldKeys.add(event.key);
   keyStarted.set(event.key, performance.now());
   keyUntil.delete(event.key);
@@ -287,10 +354,51 @@ function visibilityChanged() {
 }
 function toggleRotation() {
   clearTooltip();
+  focusTween = null;
   rotating.value = !rotating.value;
+  schedule();
 }
+function focusOnCountry() {
+  clearKeys();
+  clearTooltip();
+  rotating.value = false;
+  focusTween = null;
+  cancelAnimationFrame(frame);
+  frame = 0;
+  const feature = props.geometry.features.find(
+    (feature) => feature.properties.name === props.focusCountry,
+  );
+  if (!feature) {
+    draw();
+    return;
+  }
+  const centroid = geoCentroid(feature);
+  const rotation = projection.rotate();
+  const to: [number, number] = [
+    shortestRotation(rotation[0], -centroid[0]),
+    -centroid[1],
+  ];
+  if (motion?.matches || !visible || document.hidden || !props.active) {
+    projection.rotate(to);
+    if (visible && !document.hidden) draw();
+    return;
+  }
+  focusTween = {
+    from: [rotation[0], rotation[1]],
+    to,
+    started: performance.now(),
+  };
+  schedule();
+}
+watch(() => props.focusCountry, focusOnCountry);
 watch(
-  () => [props.countries, props.active, props.metricLabel, rotating.value],
+  () => props.selectedCountry,
+  () => {
+    if (visible && !document.hidden) draw();
+  },
+);
+watch(
+  () => [props.countries, props.active, props.metricLabel],
   () => {
     clearTooltip();
     if (!props.active) clearKeys();
@@ -314,7 +422,7 @@ onMounted(() => {
   document.addEventListener("visibilitychange", visibilityChanged);
   window.addEventListener("blur", stopKeyboard);
   size();
-  schedule();
+  focusOnCountry();
 });
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame);

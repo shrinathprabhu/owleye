@@ -12,7 +12,24 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { root } from "./common.mjs";
+import { root, verifyNodeVersion } from "./common.mjs";
+test("build tools require the exact Node version pinned by .nvmrc", async () => {
+  const expected = (await readFile(join(root, ".nvmrc"), "utf8"))
+    .trim()
+    .replace(/^v/, "");
+  await verifyNodeVersion(expected);
+  for (const version of ["26.2.0", "24.18.1", "26.12.1"])
+    await assert.rejects(
+      verifyNodeVersion(version),
+      (error) =>
+        error.message.includes(`Node.js ${expected} from .nvmrc`) &&
+        error.message.includes(`found ${version}`),
+    );
+  assert.equal(
+    (await readFile(join(root, "apps/console/.nvmrc"), "utf8")).trim(),
+    `v${expected}`,
+  );
+});
 test("archive updates explain how to redeploy without changing files", async () => {
   const dir = await mkdtemp(join(tmpdir(), "owleye-archive-"));
   try {
@@ -56,6 +73,55 @@ test("release publishing requires a tag matching the package version", async () 
     0,
   );
 });
+test("CI requires the manifest's exact pnpm version without installing anything", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "owleye-pnpm-check-"));
+  try {
+    await cp(join(root, "scripts"), join(dir, "scripts"), { recursive: true });
+    await cp(join(root, "package.json"), join(dir, "package.json"));
+    await cp(join(root, ".nvmrc"), join(dir, ".nvmrc"));
+    const { packageManager } = JSON.parse(
+      await readFile(join(root, "package.json"), "utf8"),
+    );
+    const expected = packageManager.slice("pnpm@".length);
+    const bin = join(dir, "bin");
+    await mkdir(bin);
+    for (const version of [expected, "10.28.1", "11.0.0"]) {
+      await writeFile(
+        join(bin, "pnpm"),
+        `#!/bin/sh\n[ "$#" -eq 1 ] && [ "$1" = '--version' ] || exit 97\nprintf '%s\\n' '${version}'\n`,
+        { mode: 0o755 },
+      );
+      const result = spawnSync(
+        process.execPath,
+        [join(dir, "scripts/check-package-manager.mjs")],
+        {
+          cwd: dir,
+          env: { ...process.env, PATH: bin },
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+      assert.equal(result.error, undefined);
+      if (version === expected) {
+        assert.equal(result.status, 0);
+        assert.ok(result.stdout.includes(`Verified pnpm ${expected}`));
+      } else {
+        assert.equal(result.status, 1);
+        assert.ok(
+          result.stderr.includes(
+            `pnpm ${expected} is required; found ${version}`,
+          ),
+        );
+      }
+    }
+    await assert.rejects(readFile(join(dir, "pnpm-lock.yaml")), {
+      code: "ENOENT",
+    });
+    assert.equal((await readdir(dir)).includes("node_modules"), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("setup reports every missing prerequisite before requesting credentials", async () => {
   const dir = await mkdtemp(join(tmpdir(), "owleye-prereqs-"));
   try {
@@ -88,6 +154,11 @@ test("repeated setup preserves existing state and never builds or restarts", asy
   const dir = await mkdtemp(join(tmpdir(), "owleye-repeat-setup-"));
   try {
     await cp(join(root, "scripts"), join(dir, "scripts"), { recursive: true });
+    await cp(join(root, "package.json"), join(dir, "package.json"));
+    await cp(join(root, ".nvmrc"), join(dir, ".nvmrc"));
+    const { packageManager } = JSON.parse(
+      await readFile(join(root, "package.json"), "utf8"),
+    );
     const data = join(dir, ".owleye");
     const bin = join(dir, "bin");
     await mkdir(data);
@@ -107,7 +178,7 @@ test("repeated setup preserves existing state and never builds or restarts", asy
     for (const [name, contents] of Object.entries(files))
       await writeFile(join(data, name), contents);
     const versions = {
-      pnpm: "10.28.1",
+      pnpm: packageManager.slice("pnpm@".length),
       cargo: "cargo 1.95.0",
       rustc: "rustc 1.95.0",
       sqlite3: "3.50.0",
@@ -154,6 +225,37 @@ test("repeated setup preserves existing state and never builds or restarts", asy
         assert.equal(await readFile(join(data, name), "utf8"), contents);
       assert.deepEqual((await readdir(data)).sort(), Object.keys(files).sort());
     }
+    await writeFile(
+      join(bin, "pnpm"),
+      "#!/bin/sh\nprintf '%s\\n' '10.28.1'\n",
+      { mode: 0o755 },
+    );
+    const mismatchedPnpm = spawnSync(
+      process.execPath,
+      [join(dir, "scripts/setup.mjs"), "--check"],
+      {
+        cwd: dir,
+        env: {
+          ...process.env,
+          PATH: bin,
+          OWLEYE_TEST_COMMAND_LOG: join(dir, "commands.log"),
+        },
+        encoding: "utf8",
+        timeout: 10_000,
+      },
+    );
+    assert.equal(mismatchedPnpm.error, undefined);
+    assert.equal(mismatchedPnpm.status, 1);
+    assert.ok(
+      mismatchedPnpm.stderr.includes(
+        `Install ${packageManager.replace("@", " ")}`,
+      ),
+    );
+    assert.match(mismatchedPnpm.stderr, /found 10\.28\.1/);
+    assert.doesNotMatch(mismatchedPnpm.stdout, /Administrator|Server port/);
+    for (const [name, contents] of Object.entries(files))
+      assert.equal(await readFile(join(data, name), "utf8"), contents);
+    assert.deepEqual((await readdir(data)).sort(), Object.keys(files).sort());
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

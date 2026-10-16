@@ -11,6 +11,16 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsOption } from "echarts";
 import type { AiEvidence, AiChart, AiMetric } from "~/types/ai";
 import { chartPoints, metricLabels } from "~/utils/aiReport";
+import {
+  chartBarCorners,
+  chartLegend,
+  chartLineShape,
+  chartLineStroke,
+  chartPlotGrid,
+  chartRingItemStyle,
+  readChartTheme,
+  readCssVariable,
+} from "~/utils/chartTheme";
 use([
   BarChart,
   LineChart,
@@ -27,45 +37,60 @@ const props = defineProps<{
   metric: AiMetric;
 }>();
 const chartEl = ref<HTMLElement | null>(null);
-const { ensureChart } = useEChartLifecycle(chartEl, render);
+const { ensureChart } = useEChartLifecycle(chartEl, render, {
+  observeTheme: true,
+});
 const points = computed(() => chartPoints(props.evidence, props.metric));
 const label = computed(
   () =>
     `${props.kind} chart of ${metricLabels[props.metric].toLowerCase()}, ${props.evidence.start_date} to ${props.evidence.end_date} UTC. Supporting data follows.`,
 );
+function seriesData(values: (number | null)[]) {
+  return props.kind === "bar"
+    ? values.map((value) => ({
+        value,
+        itemStyle: { borderRadius: chartBarCorners(value ?? 0) },
+      }))
+    : values;
+}
 function render() {
+  if (!chartEl.value) return;
   const chart = ensureChart();
   if (!chart) return;
+  const theme = readChartTheme(chartEl.value);
   const round = props.kind === "pie" || props.kind === "donut";
   chart.setOption(
     {
       animation: false,
-      backgroundColor: "#111214",
-      color: ["#d8ff52", "#8295ff", "#ff9b8b", "#c2b8ff", "#66d9cc", "#ffc56b"],
+      backgroundColor: "transparent",
+      color: theme.series,
+      textStyle: { fontFamily: "Geist Variable, sans-serif" },
       aria: { enabled: true, description: label.value },
       tooltip: {
         trigger: round ? "item" : "axis",
         renderMode: "richText",
         confine: true,
+        backgroundColor: theme.tooltipBg,
+        borderColor: theme.grid,
+        borderRadius: 12,
+        borderWidth: 1,
+        textStyle: {
+          color: theme.tooltipText,
+          fontFamily: "Geist Variable, sans-serif",
+        },
       },
-      legend: round
-        ? {
-            type: "scroll",
-            bottom: 0,
-            textStyle: { color: "#d5d6dc" },
-            pageTextStyle: { color: "#d5d6dc" },
-          }
-        : undefined,
-      grid: round
-        ? undefined
-        : { top: 24, left: 12, right: 16, bottom: 12, containLabel: true },
+      legend: round ? chartLegend(theme) : undefined,
+      grid: round ? undefined : chartPlotGrid(),
       xAxis: round
         ? undefined
         : {
             type: "category",
+            boundaryGap: props.kind === "bar",
+            axisLine: { lineStyle: { color: theme.axis } },
+            axisTick: { show: false },
             data: points.value.map((p) => p.label),
             axisLabel: {
-              color: "#d5d6dc",
+              color: theme.text,
               width: 80,
               overflow: "truncate",
               rotate: points.value.length > 8 ? 35 : 0,
@@ -77,8 +102,10 @@ function render() {
             type: "value",
             min: 0,
             minInterval: 1,
-            axisLabel: { color: "#d5d6dc" },
-            splitLine: { lineStyle: { color: "#34363d" } },
+            axisLabel: { color: theme.text },
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { lineStyle: { color: theme.grid } },
           },
       series: round
         ? [
@@ -88,6 +115,7 @@ function render() {
               radius: props.kind === "donut" ? ["42%", "68%"] : "68%",
               center: ["50%", "44%"],
               label: { show: false },
+              itemStyle: chartRingItemStyle(theme),
               stillShowZeroSum: false,
               data: points.value
                 .filter((p) => p.value !== null)
@@ -96,10 +124,12 @@ function render() {
           ]
         : [
             {
+              ...(props.kind === "bar" ? {} : chartLineShape),
               type: props.kind === "bar" ? "bar" : "line",
               name: metricLabels[props.metric],
-              data: points.value.map((p) => p.value),
+              data: seriesData(points.value.map((p) => p.value)),
               connectNulls: false,
+              lineStyle: { ...chartLineStroke },
               barMaxWidth: 44,
             },
           ],
@@ -120,7 +150,11 @@ defineExpose({
       data: chart.getDataURL({
         type: "png",
         pixelRatio: 2,
-        backgroundColor: "#111214",
+        backgroundColor: readCssVariable(
+          chartEl.value,
+          "--owleye-night",
+          "#111214",
+        ),
       }),
       width: chart.getWidth(),
       height: chart.getHeight(),
@@ -131,7 +165,7 @@ defineExpose({
 <template>
   <div
     ref="chartEl"
-    class="ai-report-chart"
+    class="chart-panel-surface ai-report-chart"
     role="img"
     :aria-label="label"
   ></div>

@@ -1,3 +1,4 @@
+pub(crate) mod attribution;
 pub(crate) mod audit;
 pub mod geoip;
 pub mod identity;

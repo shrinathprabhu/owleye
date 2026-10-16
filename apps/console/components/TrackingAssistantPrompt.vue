@@ -1,8 +1,20 @@
 <script setup lang="ts">
 import { trackingSetupPrompt } from "~/utils/trackingSnippet";
+import {
+  optionalTrackingSetupPrompt,
+  type OptionalCollector,
+} from "~/utils/optionalTrackingSnippet";
 
-const props = defineProps<{ siteId: string; apiBase: string }>();
-const prompt = computed(() => trackingSetupPrompt(props.siteId, props.apiBase));
+const props = defineProps<{
+  siteId: string;
+  apiBase: string;
+  kind?: OptionalCollector;
+}>();
+const prompt = computed(() =>
+  props.kind
+    ? optionalTrackingSetupPrompt(props.kind, props.siteId, props.apiBase)
+    : trackingSetupPrompt(props.siteId, props.apiBase),
+);
 const state = ref<"idle" | "copied" | "failed">("idle");
 watch(prompt, () => {
   state.value = "idle";

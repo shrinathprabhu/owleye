@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.3 (prepared, unpublished)
+
+### Automatic campaign attribution
+
+- Capture five bounded UTM fields automatically in core, rules, performance, and full builds: `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, and `utm_content`.
+- Remove the campaign enablement option from setup and CDN configuration. Legacy `captureCampaigns` values, including `false`, are ignored; a deprecated no-op TypeScript field preserves source compatibility.
+- Reject known personal-looking campaign values and bound accepted values. Arbitrary query/fragment capture remains opt-in. GPC, consent gating, no browser storage, routing, and delivery behavior remain unchanged.
+- Keep strict bundle-size checks, with a 400-byte gzip allowance for the new validation logic (measured CDN increase: 332–352 bytes). No runtime dependencies or additional requests.
+
+### Upgrade and release ordering
+
+This patch intentionally changes the default campaign fields collected. Update visitor notices where needed. Deploy the matching API and its additive schema migrations before distributing the SDK. Existing events are not backfilled. Campaign definitions and reports can now distinguish keyword/content variants without summing their distinct visitor counts into campaign totals.
+
+After review, publish from the public repository with `v1.0.3` or `@owleye/analytics@1.0.3`. No release has been published by preparing these changes. The hosted website/Console keep their installable published `1.0.2` dependency pins until npm publication; update both pins and the lockfile after publication, then rebuild/deploy those frontends. Their generated customer snippets already target the prepared release and must be deployed with that release, not before it.
+
 ## 1.0.2
 
 Patch release of `@owleye/analytics`, compared with the published npm `1.0.1` package. No public API, configuration, or event-schema changes are required.

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { ChartSnapshot } from "~/utils/chartSnapshot";
+import type { SnapshotMetric } from "~/utils/metricWidget";
 import { eventLabel } from "~/utils/eventLabel";
 import {
   breakdownItems,
@@ -33,6 +35,48 @@ const authQueryError = ref(
 );
 const sidebarCollapsed = useState("console-sidebar-collapsed", () => false);
 const rangeDays = ref(30);
+type OverviewMetric = "pageviews" | "visitors" | "events";
+const trafficMetrics = ref<OverviewMetric[]>([
+  "pageviews",
+  "visitors",
+  "events",
+]);
+const trafficChart = ref<{
+  captureSnapshot: () => Promise<ChartSnapshot>;
+} | null>(null);
+const snapshotMetrics = computed<SnapshotMetric[]>(() => {
+  if (!hasLoadedSite.value || !stats.value) return [];
+  const totals = stats.value.totals;
+  return [
+    {
+      key: "pageviews",
+      label: "Page views",
+      value: totals.pageviews,
+      unit: "page views",
+      color: "#d8ff52",
+    },
+    {
+      key: "visitors",
+      label: "Estimated visitors",
+      value: totals.pageview_visitors,
+      unit: "range-deduplicated estimates",
+      color: "#a391ff",
+    },
+    {
+      key: "events",
+      label: "Tracked events",
+      value: totals.events,
+      unit: "events",
+      color: "#ff705c",
+    },
+  ].filter((metric) =>
+    trafficMetrics.value.includes(metric.key as OverviewMetric),
+  );
+});
+async function captureTrafficSnapshot() {
+  if (!trafficChart.value) throw new Error("Chart is not ready.");
+  return trafficChart.value.captureSnapshot();
+}
 const breakdownMetric = ref<BreakdownMetric>("pageviews");
 const metricLabel = computed(() => breakdownLabel(breakdownMetric.value));
 const audienceTotal = computed(() =>
@@ -248,7 +292,7 @@ function metric(value: number | undefined, suffix = "") {
             {{
               statsPending && stats
                 ? `Updating to ${selectedRangeLabel}…`
-                : `${loadedRangeLabel} of privacy-preserving product analytics.`
+                : `${loadedRangeLabel} of product analytics.`
             }}
           </p>
         </div>
@@ -276,14 +320,14 @@ function metric(value: number | undefined, suffix = "") {
             {{
               isDemoUser
                 ? "Your apps missed their cue."
-                : "Create your first site to start tracking."
+                : "See where visitors drop off."
             }}
           </h2>
           <p>
             {{
               isDemoUser
                 ? "Retry loading the app catalog from the API."
-                : "Add its primary domain and timezone, then use the generated tracking ID in the SDK."
+                : "Create your site and install page analytics. Add the optional rules collector once to manage click, form and visibility events from the dashboard."
             }}
           </p>
           <button
@@ -358,39 +402,32 @@ function metric(value: number | undefined, suffix = "") {
       <p v-if="sitesError" class="page-alert" role="alert">{{ sitesError }}</p>
       <p v-if="statsError" class="page-alert" role="alert">{{ statsError }}</p>
 
-      <section
-        class="status-strip"
-        aria-label="Overview metrics"
-        :aria-busy="statsPending"
+      <OverviewMetricCards
+        v-model="trafficMetrics"
+        :points="stats?.timeseries ?? []"
+        :totals="hasLoadedSite ? stats?.totals : undefined"
+        :caption="rangeMetricCaption"
+        :loading="statsPending"
+        :error="statsError"
+      />
+      <p
+        v-if="
+          hasLoadedSite &&
+          stats?.measurement?.legacy_totals_policy === 'legacy_all_agents_v1'
+        "
+        class="muted"
       >
-        <article>
-          <span>Page views</span>
-          <strong :class="{ skeleton: statsPending && !stats }">{{
-            metric(stats?.totals.pageviews)
-          }}</strong>
-          <small>{{ rangeMetricCaption }}</small>
-        </article>
-        <article>
-          <span>Unique visitors</span>
-          <strong :class="{ skeleton: statsPending && !stats }">{{
-            metric(stats?.totals.visitors)
-          }}</strong>
-          <small>
-            {{
-              statsPending && stats
-                ? rangeMetricCaption
-                : "Estimated, deduplicated"
-            }}
-          </small>
-        </article>
-        <article>
-          <span>Tracked events</span>
-          <strong :class="{ skeleton: statsPending && !stats }">{{
-            metric(stats?.totals.events)
-          }}</strong>
-          <small>{{ rangeMetricCaption }}</small>
-        </article>
-      </section>
+        Legacy traffic totals include known crawlers. New engagement and channel
+        reports exclude stored crawler classifications; unknown agents remain
+        included. Neither population verifies people.
+      </p>
+      <MetricSnapshotExport
+        :metrics="snapshotMetrics"
+        :capture="captureTrafficSnapshot"
+        :period="rangeMetricCaption"
+        :site="selectedSite?.name ?? 'Website'"
+        :disabled="statsPending || !!statsError || !stats?.timeseries.length"
+      />
 
       <section class="content-grid">
         <article id="traffic" class="panel wide data-stage">
@@ -409,9 +446,11 @@ function metric(value: number | undefined, suffix = "") {
           </div>
           <OverviewChart
             v-if="normalizedSiteId"
+            ref="trafficChart"
             :error="statsError"
             :loading="statsPending"
             :points="stats?.timeseries ?? []"
+            :metrics="trafficMetrics"
             :interval="stats?.interval ?? 'day'"
             :range-key="
               stats
@@ -432,6 +471,16 @@ function metric(value: number | undefined, suffix = "") {
             </span>
           </div>
         </article>
+
+        <CohortOverview
+          :cohorts="hasLoadedSite ? stats?.cohorts : undefined"
+          :points="hasLoadedSite ? stats?.cohort_timeseries : undefined"
+          :measurement="hasLoadedSite ? stats?.measurement : undefined"
+          :entry-pages="hasLoadedSite ? stats?.entry_pages : undefined"
+          :last-pages="hasLoadedSite ? stats?.last_observed_pages : undefined"
+          :loading="statsPending"
+          :error="statsError"
+        />
 
         <article class="panel wide geo-panel">
           <div class="panel-header">
@@ -577,13 +626,19 @@ function metric(value: number | undefined, suffix = "") {
           <div class="panel-header">
             <div>
               <p class="panel-kicker">Content</p>
-              <h2>Top pages</h2>
+              <h2 id="top-pages-heading">Top pages</h2>
             </div>
           </div>
           <div v-if="statsPending" class="list-skeleton" role="status">
             <span>Loading top pages…</span>
           </div>
-          <div v-else-if="stats?.top_pages.length" class="rank-list">
+          <div
+            v-else-if="stats?.top_pages.length"
+            class="rank-list report-list-scroll"
+            tabindex="0"
+            role="region"
+            aria-labelledby="top-pages-heading"
+          >
             <div v-for="page in stats.top_pages" :key="page.path">
               <span :title="page.title || page.path">{{ page.path }}</span>
               <strong>{{ formatNumber(page.views) }}</strong>
@@ -600,69 +655,12 @@ function metric(value: number | undefined, suffix = "") {
           </p>
         </article>
 
-        <article class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Acquisition</p>
-              <h2>Referrers</h2>
-            </div>
-            <span>{{ metricLabel }}</span>
-          </div>
-          <div v-if="statsPending" class="list-skeleton" role="status">
-            <span>Loading referrers…</span>
-          </div>
-          <div v-else-if="stats?.referrers?.length" class="rank-list">
-            <div
-              v-for="referrer in breakdownItems(
-                stats.referrers,
-                breakdownMetric,
-              )"
-              :key="referrer.name"
-            >
-              <span>{{ referrer.name }}</span>
-              <strong>{{ formatNumber(referrer.count) }}</strong>
-            </div>
-          </div>
-          <p v-else class="empty-state">
-            {{
-              stats
-                ? "No referrer data in this range."
-                : "Load a site to see referrers."
-            }}
-          </p>
-        </article>
-
-        <article class="panel">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Acquisition</p>
-              <h2>UTM campaigns</h2>
-            </div>
-            <span>{{ metricLabel }}</span>
-          </div>
-          <div v-if="statsPending" class="list-skeleton" role="status">
-            <span>Loading campaigns…</span>
-          </div>
-          <div v-else-if="stats?.utm_campaigns?.length" class="rank-list">
-            <div
-              v-for="campaign in breakdownItems(
-                stats.utm_campaigns,
-                breakdownMetric,
-              )"
-              :key="campaign.name"
-            >
-              <span>{{ campaign.name }}</span>
-              <strong>{{ formatNumber(campaign.count) }}</strong>
-            </div>
-          </div>
-          <p v-else class="empty-state">
-            {{
-              stats
-                ? "No UTM campaigns in this range."
-                : "Load a site to see campaign traffic."
-            }}
-          </p>
-        </article>
+        <AcquisitionSummary
+          :stats="hasLoadedSite ? stats : undefined"
+          :metric="breakdownMetric"
+          :loading="statsPending"
+          :error="statsError"
+        />
 
         <article id="events" class="panel">
           <div class="panel-header">
@@ -693,7 +691,7 @@ function metric(value: number | undefined, suffix = "") {
           <p v-else class="empty-state">
             {{
               stats
-                ? "No events in this range."
+                ? "No events in this range. Check tracking setup or choose another date range."
                 : normalizedSiteId
                   ? "Load this site to see tracked events."
                   : "Select a site to see tracked events."

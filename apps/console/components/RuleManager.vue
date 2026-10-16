@@ -208,14 +208,13 @@ function selectorLabel(rule: TrackingRule) {
   <section class="rules-workspace" aria-labelledby="rules-heading">
     <header class="rules-intro">
       <div>
-        <p class="panel-kicker">Server-defined browser signals</p>
-        <h2 id="rules-heading">Track intent without redeploying the app.</h2>
+        <p class="panel-kicker">Dashboard-managed events</p>
+        <h2 id="rules-heading">Add events without a redeploy.</h2>
         <p>
-          Rules are stored by the API and downloaded by the optional SDK rules
-          module. Nothing is inferred, and every custom field is deliberately
-          bounded. Rules collect after they are enabled and the rules module is
-          installed on your site; they do not recover activity from before
-          publication.
+          Install the optional rules collector once, then create click,
+          form-submit and section-visible events here. New page loads pick up
+          enabled rule changes without a code change for each event. Custom
+          fields are bounded, and rules do not recover earlier activity.
         </p>
       </div>
       <span v-if="readOnly" class="status-badge neutral">Read-only app</span>
@@ -303,8 +302,8 @@ function selectorLabel(rule: TrackingRule) {
           >
             <p>
               Delete <strong>{{ rule.name }}</strong
-              >? Historical events stay in analytics; future SDK deliveries stop
-              including this rule.
+              >? Historical events stay in analytics. New page loads no longer
+              include this rule in their rule catalog.
             </p>
             <div class="confirm-actions">
               <button

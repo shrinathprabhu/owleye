@@ -1,29 +1,26 @@
 # @owleye/analytics
 
-[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics)
-[![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml)
-[![Core bundle size (minified + gzip)](https://img.shields.io/bundlejs/size/%40owleye/analytics?format=minzip&label=core%20min%2Bgzip)](https://bundlejs.com/?q=%40owleye%2Fanalytics)
-[![MIT license](https://img.shields.io/npm/l/%40owleye%2Fanalytics)](https://github.com/shrinathprabhu/owleye/blob/HEAD/packages/analytics/LICENSE)
+[![npm version](https://img.shields.io/npm/v/%40owleye%2Fanalytics)](https://www.npmjs.com/package/@owleye/analytics) [![CI](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml/badge.svg)](https://github.com/shrinathprabhu/owleye/actions/workflows/ci.yml) [![Core bundle size (minified + gzip)](https://img.shields.io/bundlejs/size/%40owleye/analytics?format=minzip&label=core%20min%2Bgzip)](https://bundlejs.com/?q=%40owleye%2Fanalytics)
 
-A dependency-free, cookie-free browser analytics SDK for OwlEye.
+The browser SDK for OwlEye: page views, custom events and dashboard-managed click, form and visibility tracking.
 
-See [the changelog](./CHANGELOG.md) for SDK 1.0.2 changes. Version-pinned 1.0.2 examples below require publication to npm first.
+Install page analytics and the optional rules entrypoint once. Then create click, form-submit and section-visible rules in the dashboard without a code change for each event. New page loads pick up enabled rule changes. Use funnels in OwlEye to see where recorded steps drop off; track completed business actions where they actually succeed.
+
+See [the changelog](./CHANGELOG.md) for SDK 1.0.3 changes. Installation and CDN examples below pin the published 1.0.3 package.
 
 ## Install
 
 ```sh
-pnpm add @owleye/analytics@1.0.2
-# or: npm install @owleye/analytics@1.0.2
-# or: bun add @owleye/analytics@1.0.2
-# or: yarn add @owleye/analytics@1.0.2
+pnpm add @owleye/analytics@1.0.3
+# or: npm install @owleye/analytics@1.0.3
+# or: bun add @owleye/analytics@1.0.3
+# or: yarn add @owleye/analytics@1.0.3
 ```
 
 ```ts
 import { useAnalytics } from "@owleye/analytics";
 
-const analytics = useAnalytics("owl_your_tracking_id", {
-  captureCampaigns: true,
-});
+const analytics = useAnalytics("owl_your_tracking_id");
 
 analytics.track("signup_completed", {
   plan: "founder",
@@ -45,7 +42,7 @@ Load the dependency-free CDN build with your site ID. Pin a published version in
 <script
   defer
   crossorigin="anonymous"
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.analytics.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.3/dist/owleye.analytics.iife.js"
   data-owleye-id="owl_your_tracking_id"
 ></script>
 <script>
@@ -55,14 +52,14 @@ Load the dependency-free CDN build with your site ID. Pin a published version in
 </script>
 ```
 
-The default SDK excludes URL query strings and fragments, writes no cookies, `localStorage`, or `sessionStorage`, omits request credentials, and suppresses tracking for Global Privacy Control (GPC) by default. Do Not Track (DNT) is no longer consulted. Optional entrypoints keep rule tracking and performance tracking out of the main bundle:
+The default SDK excludes arbitrary URL query parameters and fragments, automatically retains bounded campaign tags, writes no cookies, `localStorage`, or `sessionStorage`, omits request credentials, and suppresses tracking for Global Privacy Control (GPC) by default. Do Not Track (DNT) is no longer consulted. Optional entrypoints keep rule tracking and performance tracking out of the main bundle:
 
 ```ts
 import { trackPerf } from "@owleye/analytics/performance";
 import { trackRules } from "@owleye/analytics/rules";
 ```
 
-Import `trackWebVitals` from `@owleye/analytics/performance` to opt into PerformanceObserver estimates. The pre-release `performance: true` core option has been removed so the core bundle actually excludes the optional collector. These estimates are marked `approximate: true`; they do not implement the full reference Web Vitals algorithms and must not be presented as CrUX-equivalent CLS or INP scores. The standalone performance entrypoint enables those field metrics automatically and also exposes manual spans. Measurements obey the same SDK GPC, URL-redaction, origin and privacy controls as other events. `captureCampaigns: true` retains only `utm_source`, `utm_medium`, and `utm_campaign`; unrelated query parameters remain excluded.
+Import `trackWebVitals` from `@owleye/analytics/performance` to opt into PerformanceObserver estimates. The pre-release `performance: true` core option has been removed so the core bundle actually excludes the optional collector. These estimates are marked `approximate: true`; they do not implement the full reference Web Vitals algorithms and must not be presented as CrUX-equivalent CLS or INP scores. The standalone performance entrypoint enables those field metrics automatically and also exposes manual spans. Measurements obey the same SDK GPC, URL-redaction, origin and privacy controls as other events. SDK 1.0.3 automatically captures bounded `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, and `utm_content` values from the current page. Arbitrary query parameters and URL fragments remain excluded by default. Use broad, non-personal campaign labels; never put emails, recipient IDs, secrets, or click IDs in campaign fields. No campaign settings or browser storage are required, and attribution is not persisted after the tags disappear from the URL.
 
 Create the site in the console first. Allowed domains are optional: leave them blank to allow all browser origins, or add multiple domains to restrict tracking and rule delivery to matching hosts. Use the public tracking ID in browser code; keep API/developer secrets on your server. Verify `POST /v1/events` in the Network panel and check the response's `accepted` count: HTTP 202 can also acknowledge a privacy opt-out with zero events. Then confirm the event in the console. See the [quickstart](https://owleye.dev/docs/quickstart/) for framework setup and troubleshooting.
 
@@ -94,14 +91,13 @@ The browser controls the `Sec-GPC` header; installing OwlEye does not enable it.
 
 Use `dist/owleye.full.iife.js` when you want page analytics, Console-managed rules, Web Vitals, and manual performance timers together. It is one self-contained JavaScript payload with shared code, not a loader that downloads three more scripts. It still makes the normal rules and event API requests. Keep the smaller individual bundles when you only need some features.
 
-Load the full bundle from the version-pinned CDN URL (available after 1.0.2 is published):
+Load the full bundle from the version-pinned CDN URL:
 
 ```html
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.full.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.3/dist/owleye.full.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-capture-campaigns="true"
 ></script>
 ```
 
@@ -139,28 +135,25 @@ Load these scripts once with the same Tracking ID and endpoint. Keep `defer` (ra
 ```html
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.analytics.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.3/dist/owleye.analytics.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-capture-campaigns="true"
 ></script>
 <!-- Optional: enabled rules configured in Console -->
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.rules.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.3/dist/owleye.rules.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-capture-campaigns="true"
 ></script>
 <!-- Optional: automatic Web Vitals and manual timings -->
 <script
   defer
-  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.2/dist/owleye.performance.iife.js"
+  src="https://cdn.jsdelivr.net/npm/@owleye/analytics@1.0.3/dist/owleye.performance.iife.js"
   data-owleye-id="owl_your_tracking_id"
-  data-owleye-capture-campaigns="true"
 ></script>
 <script defer src="/analytics-events.js"></script>
 ```
 
-`data-owleye-capture-campaigns="true"` opts each bundle into capturing only `utm_source`, `utm_medium`, and `utm_campaign` from the current page URL, for example `?utm_source=newsletter&utm_medium=email&utm_campaign=autumn_launch`. Leave full query capture disabled. Campaigns are attribution on normal events, not a fourth SDK bundle or a separate manual tracking call. This does not persist first-touch attribution after those parameters disappear from the URL.
+SDK 1.0.3 automatically captures bounded `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, and `utm_content` values from the current page. Arbitrary query parameters and URL fragments remain excluded by default. Use broad, non-personal campaign labels; never put emails, recipient IDs, secrets, or click IDs in campaign fields. No campaign settings or browser storage are required, and attribution is not persisted after the tags disappear from the URL. Campaigns are attribution on normal events, not another SDK bundle or a separate manual tracking call.
 
 In your own **analytics-events.js**, use the initialized globals directly:
 
@@ -299,6 +292,16 @@ Event and performance records must be flat objects containing only strings, fini
 
 Avoid sending names, email addresses, tokens, or other personal data. SDK constructors validate the site ID and server URL immediately, including during server rendering; create browser controllers in client-only lifecycle code. See the [SDK guide](https://owleye.dev/docs/sdk/) for configuration, browser/CDN usage, SPA behavior, payload limits, and cleanup.
 
+### Campaign value limits
+
+Accepted campaign values are trimmed and limited to 200 UTF-8 bytes each. Known emails, URLs, IP addresses, UUIDs, long numeric/token-like values, credential patterns, and invisible control characters are dropped. The automatic query is capped at 2,048 encoded bytes by dropping whole parameters; oversized source queries fail closed. The first occurrence of each case-insensitive key wins, so a later duplicate cannot revive an unsafe value. These checks reduce accidental disclosure; they do not make arbitrary user text safe.
+
+## Upgrading to 1.0.3
+
+Campaign capture is now automatic in every entrypoint. Remove the old `captureCampaigns` option and `data-owleye-capture-campaigns` attribute: they no longer change collection, including when set to `false`. A deprecated no-op TypeScript field remains so existing integrations compile. Review your visitor notice before upgrading. Full query/fragment capture and GPC defaults have not changed. Upgrade the API before installing this SDK; self-hosted APIs need the additive attribution schema and parser changes. Older stored events cannot gain attribution they never captured.
+
+Version-pinned 1.0.3 npm/CDN URLs become available only after the release is published. See the [changelog](./CHANGELOG.md) for release ordering.
+
 ## Config
 
 All configuration fields are optional. Pass an `OwlConfig` object as the second argument to `useAnalytics`, `trackPerf`, or `trackWebVitals`. `trackRules` accepts `OwlRulesConfig`, which adds `enrichRule` to the same options. Each entrypoint has its own configuration; options are not automatically copied between trackers.
@@ -311,8 +314,7 @@ All configuration fields are optional. Pass an `OwlConfig` object as the second 
 | `trackHashChanges` | `boolean` | `false` | Count hash-only navigation. Does not enable hash capture. |
 | `debug` | `boolean` | `false` | Explain collection/delivery decisions and numeric API acknowledgements without event payloads or raw response text. Failures still produce bounded warnings when disabled. |
 | `mock` | `boolean` | `false` | Skip network requests; useful with `debug` during development. Remote rules are not loaded. |
-| `captureQuery` | `boolean` | `false` | Include full query strings in page and referrer fields. Takes precedence over `captureCampaigns`; query strings may contain sensitive information. |
-| `captureCampaigns` | `boolean` | `false` | Include only `utm_source`, `utm_medium`, and `utm_campaign` from the current URL. Does not persist attribution after the parameters disappear. |
+| `captureQuery` | `boolean` | `false` | Include full query strings in page and referrer fields. Broader than automatic campaign capture; query strings may contain sensitive information. |
 | `captureHash` | `boolean` | `false` | Include URL fragments in page and referrer fields. Fragments may contain sensitive information. |
 | `respectGlobalPrivacyControl` | `boolean` | `true` | Disable tracking when the browser enables Global Privacy Control. This check runs in the SDK only; the ingestion API does not enforce the header. |
 | `server` | `string \| URL` | `https://api.owleye.dev` | Override the API base with an absolute HTTP(S) URL or same-origin path. Credentials, query strings, and fragments are not allowed. |
@@ -320,7 +322,7 @@ All configuration fields are optional. Pass an `OwlConfig` object as the second 
 
 Rule enrichment shares the ten-field limit with configured DOM captures; configured captures take precedence. Return only string, finite number, or boolean values. Throwing or returning invalid data does not prevent the base rule event.
 
-The examples use the default hosted API. For self-hosting, set `server` to your own OwlEye origin on each SDK entrypoint you use. Copy the installation snippet from your Console for the correct endpoint; omitting the override sends requests to the hosted API.
+The examples use the default OwlEye API. To send events to a custom API origin, set `server` on each SDK entrypoint you use. Copy the installation snippet from your Console for the correct endpoint; omitting the override sends requests to `https://api.owleye.dev`.
 
 ### CDN configuration
 
@@ -335,7 +337,6 @@ Set the corresponding attributes on each bundle's script tag. Omitted attributes
 | `debug` | `data-owleye-debug` |
 | `mock` | `data-owleye-mock` |
 | `captureQuery` | `data-owleye-capture-query` |
-| `captureCampaigns` | `data-owleye-capture-campaigns` |
 | `captureHash` | `data-owleye-capture-hash` |
 | `respectGlobalPrivacyControl` | `data-owleye-respect-global-privacy-control` |
 | `server` | `data-owleye-server` |
@@ -345,13 +346,11 @@ The tracking ID is supplied separately using `data-owleye-id`. See [CDN campaign
 
 Source: <https://github.com/shrinathprabhu/owleye>
 
-License: [MIT](LICENSE)
-
 ## Reproducible release artifacts
 
 The package is published on npm. Source-checkout builds generate `dist/integrity.json` with SHA-384 digests for each standalone IIFE. For a CDN install, use an exact published version, its matching integrity value, and `crossorigin="anonymous"`. Do not copy a digest from a different build.
 
-The GitHub release workflow builds and publishes the version in this manifest with npm provenance. Configure the npm trusted publisher as described in the [self-hosting guide](https://github.com/shrinathprabhu/owleye/blob/HEAD/docs/SELF_HOSTING.md#sdk), then publish a matching release tag.
+The [GitHub release workflow](https://github.com/shrinathprabhu/owleye/blob/HEAD/.github/workflows/release-sdk.yml) builds and publishes the version in this manifest with npm provenance. Maintainers must configure npm trusted publishing and use a release tag that matches the package manifest; the [release check](https://github.com/shrinathprabhu/owleye/blob/HEAD/scripts/check-sdk-release.mjs) verifies that match.
 
 Package: [@owleye/analytics](https://www.npmjs.com/package/@owleye/analytics) · [Source](https://github.com/shrinathprabhu/owleye/tree/HEAD/packages/analytics) · [Website](https://owleye.dev)
 
@@ -365,4 +364,22 @@ The browser measures visible page time using its monotonic clock. Each time the 
 
 Same-origin referrers are omitted from new SDK payloads and normalized away by the API. Different subdomains, schemes, or ports are different origins and remain eligible as referral sources. Browser privacy settings can prevent any referrer from being available. OwlEye's outbound HTTP `Referrer-Policy` does not remove an external referrer already captured in the event payload.
 
-Web Vitals and explicit performance spans use separate measurement storage and do not appear in ordinary event lists. Web Vitals charts browser metrics; custom span summaries are available through AI reports. Collection still requires loading the optional performance entrypoint. Self-hosted installations have no monthly event allowance.
+Web Vitals and explicit performance spans use separate measurement storage and do not appear in ordinary event lists. Web Vitals charts browser metrics; custom span summaries can be queried through AI reports when that service is available and enabled. Collection still requires loading the optional performance entrypoint.
+
+## Endpoint overrides and proxies
+
+`server` (or `data-owleye-server`) changes the API base URL. Serving the SDK file yourself changes only the script download location. Neither is a managed first-party proxy feature, and neither guarantees recovery of blocked traffic.
+
+A generic rewrite can make all visitors appear to arrive from the proxy. OwlEye accepts forwarded client addresses only when the immediate peer is an explicitly trusted proxy configured by the API operator. The operator must control that hop, remove untrusted incoming forwarding headers, and preserve the original address through the supported chain. Do not expand trust to arbitrary Internet clients or shared hosting ranges. Hosted customers cannot establish this trust merely by setting `server`.
+
+An incorrectly configured proxy can distort visitor/session counts and country attribution, and collapse clients into a shared rate-limit bucket. It adds latency, bandwidth costs, logging exposure and another failure point. Endpoint changes must preserve collection-permission and Global Privacy Control behavior; they are not permission to bypass a visitor's choices. Use the normal API origin until the deployment's trust, routing, headers, privacy and failure behavior have been tested.
+
+## Release artifact checks and source maps
+
+Run `pnpm build`, `pnpm size`, and `node --test test/artifacts.test.mjs` from this package before reporting SDK sizes. The existing size gate covers complete consumer bundles, standalone scripts, unused-import tree shaking and isolation of optional collectors. The artifact test checks documented version-pinned CDN paths against local release files, all declared export targets, SHA-384 integrity values and source-map references. It does not prove that a version has been published or is available from a live CDN; verify publication and the downloaded bytes separately at release time.
+
+Keep the generated JavaScript and declaration maps in `dist` for this release. Their adjacent `sourceMappingURL` references must continue to resolve; stripping only map files would leave broken references. The JavaScript maps embed SDK source for debugging. Declaration maps can point to the original TypeScript source, which is not currently included in the published package. Any change to that packaging requires a deliberate release decision and a packed-consumer check. Source-map files add package/download-on-debug size, not the normal script transfer measured by the gzip budgets. Removing maps from a tarball is not a claim of faster visitor page loads.
+
+## License
+
+[MIT](LICENSE).

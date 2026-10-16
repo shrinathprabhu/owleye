@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { eventLabel } from "~/utils/eventLabel";
 import type { ConsoleSelectOption } from "~/types/console";
-import { apiErrorMessage as requestError } from "~/utils/apiError";
+import {
+  apiErrorMessage as requestError,
+  apiErrorStatus,
+} from "~/utils/apiError";
 import { routes } from "~/utils/routes";
 
 type EventExplorerItem = {
@@ -25,7 +28,7 @@ type EventExplorerResponse = {
 const props = defineProps<{
   siteId?: string;
 }>();
-const { api } = useApi();
+const { api, responseCache } = useApi();
 
 const days = ref(30);
 const eventType = ref("all");
@@ -114,31 +117,43 @@ async function loadEvents() {
   }
   const siteId = props.siteId;
   requestController?.abort();
+  const query = {
+    days: days.value,
+    event_type: eventType.value === "all" ? undefined : eventType.value,
+    group_by: groupBy.value,
+    order: order.value,
+    search: search.value.trim() || undefined,
+    sort_by: sortBy.value,
+  };
+  const cacheKey = `events:${siteId}:${JSON.stringify(query)}`;
+  const cached = responseCache.read<EventExplorerResponse>(cacheKey);
+  response.value = cached?.value ?? null;
+  error.value = "";
+  loading.value = false;
+  if (cached?.fresh) return;
+  const generation = responseCache.generation;
   const controller = new AbortController();
   requestController = controller;
-  loading.value = true;
-  error.value = "";
-
+  loading.value = !response.value;
   try {
     const result = await api<EventExplorerResponse>(
       routes.sites.events(siteId),
       {
-        query: {
-          days: days.value,
-          event_type: eventType.value === "all" ? undefined : eventType.value,
-          group_by: groupBy.value,
-          order: order.value,
-          search: search.value.trim() || undefined,
-          sort_by: sortBy.value,
-        },
+        query,
         signal: controller.signal,
       },
     );
-    if (controller.signal.aborted || props.siteId !== siteId) return;
+    if (
+      controller.signal.aborted ||
+      props.siteId !== siteId ||
+      generation !== responseCache.generation
+    )
+      return;
+    responseCache.write(cacheKey, result, generation);
     response.value = result;
   } catch (cause) {
     if (controller.signal.aborted || props.siteId !== siteId) return;
-    response.value = null;
+    if ([401, 403].includes(apiErrorStatus(cause) ?? 0)) response.value = null;
     error.value = requestError(cause, "Events could not be loaded.");
   } finally {
     if (requestController === controller) {
@@ -225,16 +240,14 @@ function label(value: string) {
     </div>
 
     <div v-if="error" class="page-alert" role="alert">
-      <p>{{ error }}</p>
+      <p>
+        {{ error }} {{ response ? "Showing the last loaded snapshot." : "" }}
+      </p>
       <button class="text-button" type="button" @click="loadEvents">
         Try again
       </button>
     </div>
-    <div
-      v-else-if="loading && !response"
-      class="management-loading"
-      role="status"
-    >
+    <div v-if="loading && !response" class="management-loading" role="status">
       <span class="state-orbit" aria-hidden="true"></span>
       <span>Grouping events without judging them…</span>
     </div>

@@ -1,0 +1,98 @@
+/* One visual contract for chart panels; canvas sizing stays with each chart. */
+.chart-panel-surface,
+.panel.data-stage {
+  --chart-panel-radius: 22px;
+  --chart-panel-padding: 24px;
+  --chart-surface-bg: var(--owleye-night, #111214);
+  --bg-base: var(--chart-surface-bg);
+  --bg-elevated: #18191d;
+  --bg-subtle: #222328;
+  --bg-hover: #292b30;
+  --bg-pressed: #34363d;
+  --bg-selected: #1b2450;
+  --bg-accent-subtle: rgb(216 255 82 / 0.12);
+  --bg-brand-subtle: rgb(61 90 254 / 0.16);
+  --text-primary: #f7f7f2;
+  --text-secondary: #c4c5c0;
+  --text-tertiary: #a8a9ad;
+  --text-link: #8fa0ff;
+  --text-link-hover: #c2b8ff;
+  --border-default: #555861;
+  --border-subtle: #34363d;
+  --brand-text-safe: #8fa0ff;
+  --chart-1: var(--owleye-lime, #d8ff52);
+  --chart-2: var(--owleye-violet, #a391ff);
+  --chart-3: var(--owleye-coral, #ff705c);
+  --chart-4: #8295ff;
+  --chart-5: #66d9cc;
+  --chart-6: #ffc56b;
+  --chart-7: #c2b8ff;
+  --chart-8: #ff9b8b;
+  --chart-axis: #737780;
+  --chart-grid: #34363d;
+  --chart-text: #c4c5c0;
+  --chart-tooltip-bg: #18191d;
+  --chart-tooltip-text: #f7f7f2;
+  min-width: 0;
+  color: var(--chart-text);
+  border: 2px solid var(--owleye-ink, #151515);
+  border-radius: var(--chart-panel-radius);
+  background:
+    radial-gradient(circle at 92% 8%, rgb(61 90 254 / 0.2), transparent 18rem),
+    linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px),
+    var(--chart-surface-bg);
+  background-size:
+    auto,
+    28px 28px,
+    28px 28px,
+    auto;
+  box-shadow: 6px 6px 0 var(--owleye-blue, #3d5afe);
+}
+
+.chart-panel-padded,
+.panel.data-stage {
+  padding: var(--chart-panel-padding);
+}
+
+.chart-panel-surface .chart-state,
+.chart-panel-surface .chart-state > span:last-of-type {
+  color: var(--chart-text);
+}
+
+.chart-panel-surface .chart-state {
+  border-color: var(--chart-grid);
+  background: rgb(24 25 29 / 0.78);
+}
+
+.chart-panel-surface .chart-state.error {
+  border-color: var(--chart-3);
+  background: rgb(255 112 92 / 0.08);
+}
+
+.chart-panel-surface .text-button {
+  color: var(--chart-1);
+}
+
+.chart-panel-surface .button.secondary {
+  color: var(--owleye-blue, #3d5afe);
+  background: var(--owleye-white, #fffef9);
+}
+
+.chart-sparkline {
+  border-radius: 10px;
+  background: var(--owleye-night, #111214);
+  padding: 4px;
+}
+
+.chart-panel-surface .chart-state strong {
+  color: #f7f7f2;
+}
+
+@media (max-width: 600px) {
+  .chart-panel-surface,
+  .panel.data-stage {
+    --chart-panel-padding: 16px;
+    box-shadow: 4px 4px 0 var(--owleye-blue, #3d5afe);
+  }
+}

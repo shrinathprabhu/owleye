@@ -27,11 +27,15 @@ jobs:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      - name: Verify pinned package manager
+        run: node scripts/check-package-manager.mjs
       - name: Verify release version and source
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: node scripts/check-sdk-release.mjs
       - run: pnpm install --frozen-lockfile
+      - name: Verify dependency installation preserved the lockfile
+        run: git diff --exit-code -- pnpm-lock.yaml
       - run: pnpm --filter @owleye/analytics test
       - run: pnpm --filter @owleye/analytics size
       - name: Inspect package

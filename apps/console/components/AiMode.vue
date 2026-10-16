@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import type { AiModeResponse, AiPromptResponse } from "~/types/ai";
-import { apiErrorMessage as requestError } from "~/utils/apiError";
+import {
+  apiErrorMessage as requestError,
+  apiErrorStatus,
+} from "~/utils/apiError";
 import { routes } from "~/utils/routes";
 
 const props = defineProps<{
   siteId?: string;
   siteTrackingId?: string;
 }>();
-const { api } = useApi();
+const { api, responseCache } = useApi();
 
 type SubmittedPrompt = {
   id: string;
@@ -66,23 +69,39 @@ async function loadStatus(quiet = false) {
     loading.value = false;
     return;
   }
+  const cacheKey = `ai-status:${siteId}`;
+  const cached = responseCache.read<AiModeResponse>(cacheKey);
+  if (!quiet && cached) {
+    status.value = cached.value;
+    error.value = "";
+    loading.value = false;
+    if (cached.fresh) return;
+  }
+  const generation = responseCache.generation;
   requestController?.abort();
   const controller = new AbortController();
   requestController = controller;
   if (!quiet) {
-    loading.value = true;
+    loading.value = !status.value;
     error.value = "";
   }
   try {
     const response = await api<AiModeResponse>(routes.sites.ai(siteId), {
       signal: controller.signal,
     });
-    if (controller.signal.aborted || props.siteId !== siteId) return;
+    if (
+      controller.signal.aborted ||
+      props.siteId !== siteId ||
+      generation !== responseCache.generation
+    )
+      return;
+    responseCache.write(cacheKey, response, generation);
     status.value = response;
   } catch (cause) {
     if (controller.signal.aborted || props.siteId !== siteId) return;
-    if (!quiet) {
-      status.value = null;
+    const code = apiErrorStatus(cause);
+    if (code === 401 || code === 403) status.value = null;
+    if (!quiet || code === 401 || code === 403) {
       error.value = requestError(
         cause,
         "I couldn’t connect to your analytics assistant. Please try again.",
@@ -301,10 +320,11 @@ async function sendPrompt() {
         </div>
         <div v-else-if="!submitted.length" class="chat-welcome">
           <span class="welcome-mark" aria-hidden="true">✦</span>
-          <h3>Your numbers have a story.</h3>
+          <h3>Ask your recorded data.</h3>
           <p>
-            Ask about locations, events, traffic, or campaign conversions.
-            Include the filters and date range you want to explore.
+            Ask about locations, events, traffic, or campaign conversions in
+            plain English. Include the filters and date range you want to
+            explore.
           </p>
           <div class="starter-questions">
             <button

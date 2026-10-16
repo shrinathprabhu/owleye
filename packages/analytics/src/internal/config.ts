@@ -26,7 +26,6 @@ export interface NormalizedConfig {
   autoTrackPageviews: boolean;
   trackQueryChanges: boolean;
   trackHashChanges: boolean;
-  captureCampaigns: boolean;
   captureHash: boolean;
   captureQuery: boolean;
   debug: boolean;
@@ -41,7 +40,6 @@ export function normalizeConfig(config: OwlConfig = {}): NormalizedConfig {
     autoTrackPageviews: config.autoTrackPageviews !== false,
     trackQueryChanges: Boolean(config.trackQueryChanges),
     trackHashChanges: Boolean(config.trackHashChanges),
-    captureCampaigns: Boolean(config.captureCampaigns),
     captureHash: Boolean(config.captureHash),
     captureQuery: Boolean(config.captureQuery),
     debug: Boolean(config.debug),
@@ -119,9 +117,6 @@ export function readScriptConfig(script: HTMLScriptElement | null): {
       ),
       trackHashChanges: parseBoolean(
         readDataset(script, "owleyeTrackHashChanges", "owlEyeTrackHashChanges"),
-      ),
-      captureCampaigns: parseBoolean(
-        readDataset(script, "owleyeCaptureCampaigns", "owlEyeCaptureCampaigns"),
       ),
       captureHash: parseBoolean(
         readDataset(script, "owleyeCaptureHash", "owlEyeCaptureHash"),

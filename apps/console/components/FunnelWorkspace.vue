@@ -34,6 +34,7 @@ const {
 } = useProViewWorkspace({ canWrite, demo, site });
 
 const builderOpen = ref(false);
+const configurationOpen = ref(true);
 const editing = shallowRef<ProViewWidgetDefinition | null>(null);
 const inspected = shallowRef<ProViewWidgetDefinition | null>(null);
 const confirmDelete = ref("");
@@ -50,10 +51,13 @@ function openBuilder(definition: ProViewWidgetDefinition | null = null) {
   preview.value = null;
   previewError.value = "";
   builderOpen.value = true;
+  configurationOpen.value = true;
   nextTick(() =>
-    document
-      .querySelector("#funnel-builder")
-      ?.scrollIntoView({ behavior: "smooth" }),
+    document.querySelector("#funnel-builder")?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    }),
   );
 }
 
@@ -77,6 +81,7 @@ async function handleSave(definition: ProViewWidgetDefinition) {
 
 async function inspect(definition: ProViewWidgetDefinition) {
   openBuilder(definition);
+  configurationOpen.value = false;
   await handlePreview(definition);
 }
 
@@ -93,7 +98,7 @@ async function remove(definition: ProViewWidgetDefinition) {
           >{{ funnels.length }} saved
           {{ funnels.length === 1 ? "funnel" : "funnels" }}</strong
         >
-        <span>Follow anonymous visitors through 2–10 conversion steps</span>
+        <span>Explore estimated cohorts through 2–10 conversion steps</span>
       </div>
       <button :disabled="!canPersist" type="button" @click="openBuilder()">
         + Create funnel
@@ -110,18 +115,6 @@ async function remove(definition: ProViewWidgetDefinition) {
       id="funnel-builder"
       class="funnel-builder-layout"
     >
-      <ProViewBuilder
-        :key="editing?.id ?? 'new-funnel'"
-        :busy="mutationPending || previewPending"
-        :can-save="canPersist"
-        :event-options="eventOptions"
-        :initial-definition="editing"
-        kind="funnel"
-        :preview-available="true"
-        @cancel="closeBuilder"
-        @preview="handlePreview"
-        @save="handleSave"
-      />
       <LazyProViewPreview
         :definition="inspected"
         :error="previewError"
@@ -130,6 +123,25 @@ async function remove(definition: ProViewWidgetDefinition) {
         :preview="preview"
         @retry="inspected && handlePreview(inspected)"
       />
+      <details
+        class="funnel-configuration"
+        :open="configurationOpen"
+        @toggle="configurationOpen = ($event.target as HTMLDetailsElement).open"
+      >
+        <summary>Configure steps and date range</summary>
+        <ProViewBuilder
+          :key="editing?.id ?? 'new-funnel'"
+          :busy="mutationPending || previewPending"
+          :can-save="canPersist"
+          :event-options="eventOptions"
+          :initial-definition="editing"
+          kind="funnel"
+          :preview-available="true"
+          @cancel="closeBuilder"
+          @preview="handlePreview"
+          @save="handleSave"
+        />
+      </details>
     </section>
 
     <section class="funnel-library">
@@ -149,7 +161,11 @@ async function remove(definition: ProViewWidgetDefinition) {
         <article v-for="funnel in funnels" :key="funnel.id">
           <header>
             <div>
-              <span>Ordered funnel</span>
+              <span
+                >{{ funnel.funnel?.order_mode ?? "ordered" }} funnel · v{{
+                  funnel.funnel?.semantic_version ?? 1
+                }}</span
+              >
               <h3>{{ funnel.title }}</h3>
             </div>
             <strong>{{ funnel.funnel?.steps.length }} steps</strong>
@@ -174,7 +190,7 @@ async function remove(definition: ProViewWidgetDefinition) {
             >
             <div>
               <button type="button" @click="inspect(funnel)">
-                Query &amp; edit
+                View results
               </button>
               <button
                 v-if="confirmDelete !== funnel.id"
@@ -273,10 +289,19 @@ article footer button {
 }
 .funnel-builder-layout {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 20px;
   scroll-margin-top: 20px;
+}
+.funnel-configuration {
+  min-width: 0;
+}
+.funnel-configuration > summary {
+  cursor: pointer;
+  padding: 14px 0;
+  font-weight: 750;
+  color: var(--text-primary);
 }
 .funnel-library {
   min-width: 0;

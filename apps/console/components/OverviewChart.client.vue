@@ -15,6 +15,7 @@ import {
 import { use, type ComposeOption } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 
+import { chartSnapshot } from "~/utils/chartSnapshot";
 import { useEChartLifecycle } from "~/composables/useEChartLifecycle";
 import {
   trafficPeriodLabel,
@@ -26,6 +27,10 @@ import {
   type TrafficMetric,
 } from "~/utils/trafficMetrics";
 import {
+  chartLineShape,
+  chartLineStroke,
+  chartLegend,
+  chartPlotGrid,
   chartMotion,
   chartZoom,
   readTrafficChartTheme,
@@ -127,9 +132,10 @@ function renderChart() {
   if (!currentChart) return;
 
   const colors = readTrafficChartTheme(chartEl.value);
+  const interval = props.interval;
   const reduceMotion = prefersReducedMotion();
   const series = chartSeries(colors);
-  const range = `${props.rangeKey}:${props.interval}:${props.metrics.join(",")}:${periods.value[0]}:${periods.value.at(-1)}`;
+  const range = `${props.rangeKey}:${props.interval}:${periods.value[0]}:${periods.value.at(-1)}`;
   const rangeChanged = renderedRange !== range;
   const zoom = chartZoom(periods.value.length, colors).map((option) => {
     // Let a manual zoom survive refreshes within the same date range.
@@ -146,33 +152,17 @@ function renderChart() {
       },
       color: colors.series,
       dataZoom: zoom,
-      grid: {
-        bottom: 112,
-        left: 8,
-        outerBoundsContain: "axisLabel",
-        outerBoundsMode: "same",
-        right: 12,
-        top: 20,
-      },
+      grid: chartPlotGrid(true),
       legend: {
-        type: "scroll",
-        pageIconColor: colors.text,
-        pageIconInactiveColor: colors.axis,
-        pageTextStyle: { color: colors.text },
-        bottom: 0,
-        itemHeight: 8,
-        itemWidth: 18,
-        textStyle: {
-          color: colors.text,
-          fontFamily: "Geist Variable, sans-serif",
-        },
+        ...chartLegend(colors),
+        selectedMode: false,
       },
       series,
       tooltip: {
         axisPointer: {
           label: {
             formatter: ({ value }: { value: unknown }) =>
-              trafficPeriodLabel(String(value), props.interval),
+              trafficPeriodLabel(String(value), interval),
           },
           lineStyle: {
             color: colors.axis,
@@ -193,7 +183,7 @@ function renderChart() {
           color: colors.text,
           hideOverlap: true,
           formatter: (value: string) =>
-            trafficPeriodLabel(value, props.interval, true),
+            trafficPeriodLabel(value, interval, true),
         },
         axisLine: {
           lineStyle: {
@@ -243,10 +233,9 @@ function chartSeries(colors: ReturnType<typeof readTrafficChartTheme>) {
     const color =
       metric === "sessions" ? colors.series[3] : colors.traffic[metric];
     return {
+      ...chartLineShape,
       emphasis: { focus: "series" as const },
       showSymbol: false,
-      smooth: 0.36,
-      smoothMonotone: "x" as const,
       type: "line" as const,
       data: periods.value.map((date) => ({
         name: date,
@@ -255,9 +244,8 @@ function chartSeries(colors: ReturnType<typeof readTrafficChartTheme>) {
       id: `traffic-${metric}`,
       itemStyle: { color },
       lineStyle: {
-        cap: "round" as const,
+        ...chartLineStroke,
         color,
-        join: "round" as const,
         shadowBlur: metric === "pageviews" ? 14 : 10,
         shadowColor: color,
         width: metric === "pageviews" ? 3.25 : 2.75,
@@ -266,6 +254,17 @@ function chartSeries(colors: ReturnType<typeof readTrafficChartTheme>) {
     };
   }) satisfies LineSeriesOption[];
 }
+
+async function captureSnapshot() {
+  await nextTick();
+  if (props.loading || props.error || !hasPoints.value)
+    throw new Error("Traffic is not available for export.");
+  renderChart();
+  const chart = ensureChart();
+  if (!chart) throw new Error("Chart is not ready.");
+  return chartSnapshot(chart);
+}
+defineExpose({ captureSnapshot });
 
 function trafficValue(date: string, metric: TrafficMetric) {
   return trafficByDate.value.get(date)?.[metric] ?? "—";

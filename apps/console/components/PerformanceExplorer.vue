@@ -4,11 +4,19 @@ import {
   type PerformanceMetric,
   type PerformanceResponse,
 } from "~/types/insights";
-import { apiErrorMessage as requestError } from "~/utils/apiError";
+import {
+  apiErrorMessage as requestError,
+  apiErrorStatus,
+} from "~/utils/apiError";
+import {
+  VITAL_PRESENTATION,
+  vitalValue,
+  vitalPosition,
+} from "~/utils/vitalPresentation";
 import { routes } from "~/utils/routes";
 
 const props = defineProps<{ siteId?: string }>();
-const { api } = useApi();
+const { api, responseCache } = useApi();
 const response = shallowRef<PerformanceResponse | null>(null);
 const selectedMetric = ref<PerformanceMetric>("LCP");
 const days = ref(30);
@@ -31,9 +39,16 @@ async function load() {
   loading.value = false;
   const siteId = props.siteId;
   if (!siteId) return;
+  const cacheKey = `performance:${siteId}:${days.value}:${selectedMetric.value}`;
+  const cached = responseCache.read<PerformanceResponse>(cacheKey);
+  if (cached) {
+    response.value = cached.value;
+    if (cached.fresh) return;
+  }
+  const generation = responseCache.generation;
   const current = new AbortController();
   controller = current;
-  loading.value = true;
+  loading.value = !response.value;
   try {
     const result = await api<PerformanceResponse>(
       routes.sites.performance(siteId),
@@ -42,10 +57,18 @@ async function load() {
         signal: current.signal,
       },
     );
-    if (!current.signal.aborted && props.siteId === siteId)
+    if (
+      !current.signal.aborted &&
+      props.siteId === siteId &&
+      generation === responseCache.generation
+    ) {
+      responseCache.write(cacheKey, result, generation);
       response.value = result;
+    }
   } catch (cause) {
     if (!current.signal.aborted) {
+      if ([401, 403].includes(apiErrorStatus(cause) ?? 0))
+        response.value = null;
       error.value = requestError(cause, "Web Vitals could not be loaded.");
     }
   } finally {
@@ -66,16 +89,39 @@ function summary(metric: PerformanceMetric) {
   return response.value?.metrics.find((item) => item.metric === metric);
 }
 
-function value(metric: PerformanceMetric, raw?: number) {
-  if (raw === undefined) return "—";
-  return metric === "CLS"
-    ? raw.toFixed(3)
-    : `${Math.round(raw).toLocaleString()} ms`;
-}
+const value = vitalValue;
 
 const selectedSamples = computed(
   () => summary(selectedMetric.value)?.samples ?? 0,
 );
+const distribution = computed(() => {
+  const item = summary(selectedMetric.value);
+  if (
+    !item ||
+    item.good_samples == null ||
+    item.needs_improvement_samples == null ||
+    item.poor_samples == null ||
+    !item.samples
+  )
+    return null;
+  return [
+    {
+      label: "Good",
+      count: item.good_samples,
+      color: "var(--vital-good-fill)",
+    },
+    {
+      label: "Needs improvement",
+      count: item.needs_improvement_samples,
+      color: "var(--vital-watch-fill)",
+    },
+    {
+      label: "Poor",
+      count: item.poor_samples,
+      color: "var(--vital-poor-fill)",
+    },
+  ].map((band) => ({ ...band, share: (band.count / item.samples) * 100 }));
+});
 const emptyDescription = computed(() =>
   response.value?.collecting
     ? selectedMetric.value === "INP"
@@ -107,7 +153,11 @@ const emptyDescription = computed(() =>
         <h2>Web Vitals couldn’t be loaded</h2>
         <p>{{ error }}</p>
         <p>
-          Sample availability is unknown because the request failed. Try again.
+          {{
+            response
+              ? "Showing the last loaded snapshot; refresh failed."
+              : "Sample availability is unknown because the request failed. Try again."
+          }}
         </p>
       </div>
       <button type="button" class="button secondary compact" @click="load">
@@ -116,7 +166,7 @@ const emptyDescription = computed(() =>
     </section>
 
     <section
-      v-if="!error"
+      v-if="!error || response"
       class="vitals-grid"
       aria-label="Web Vital summaries"
       :aria-busy="loading"
@@ -126,15 +176,33 @@ const emptyDescription = computed(() =>
         :key="metric"
         type="button"
         :class="[
-          'vital-card',
+          'vital-card console-selectable-card',
           summary(metric)?.rating,
           { active: selectedMetric === metric },
         ]"
         :aria-pressed="selectedMetric === metric"
         @click="selectMetric(metric)"
       >
-        <span>{{ metric }}</span>
+        <span
+          >{{ metric }} ·
+          {{
+            VITAL_PRESENTATION[metric].core ? "Core vital" : "Supporting"
+          }}</span
+        >
+        <span class="vital-description"
+          >{{ VITAL_PRESENTATION[metric].label }} · Estimated p75</span
+        >
         <strong>{{ value(metric, summary(metric)?.p75) }}</strong>
+        <span class="threshold-band" aria-hidden="true"
+          ><i
+            v-if="vitalPosition(metric, summary(metric)?.p75) !== null"
+            :style="{ left: `${vitalPosition(metric, summary(metric)?.p75)}%` }"
+          ></i
+        ></span>
+        <span class="threshold-label"
+          >Good ≤ {{ value(metric, VITAL_PRESENTATION[metric].good) }} · Poor
+          &gt; {{ value(metric, VITAL_PRESENTATION[metric].poor) }}</span
+        >
         <small>
           {{
             loading
@@ -147,7 +215,53 @@ const emptyDescription = computed(() =>
       </button>
     </section>
 
-    <section v-if="!error" class="insight-panel performance-stage">
+    <p class="sample-note">
+      Bands show rating thresholds, not the share of visitors in each band.
+      Metrics reflect supported browsers that sent samples.
+    </p>
+    <p
+      v-if="selectedSamples > 0 && !distribution"
+      class="sample-note"
+      role="status"
+    >
+      The sample distribution is unavailable or withheld for privacy. Missing
+      bands are not zero; the percentile summary above remains separate.
+    </p>
+    <section
+      v-if="distribution"
+      class="insight-panel"
+      aria-label="Selected metric sample distribution"
+    >
+      <header>
+        <div>
+          <p class="panel-kicker">Observed samples</p>
+          <h2>{{ selectedMetric }} rating distribution</h2>
+        </div>
+        <span>{{ selectedSamples.toLocaleString() }} samples</span>
+      </header>
+      <div class="vital-distribution" aria-hidden="true">
+        <span
+          v-for="band in distribution"
+          :key="band.label"
+          :style="{ width: `${band.share}%`, background: band.color }"
+        ></span>
+      </div>
+      <ul class="distribution-labels">
+        <li
+          v-for="band in distribution"
+          :key="band.label"
+          :style="{ '--band-fill': band.color }"
+        >
+          <strong>{{ band.label }}</strong> {{ band.count.toLocaleString() }} ·
+          {{ band.share.toFixed(1) }}%
+        </li>
+      </ul>
+      <p class="sample-note">
+        Shares describe reported samples, not all visitors. The complete
+        distribution is withheld when a contributing band has a sparse audience.
+      </p>
+    </section>
+    <section v-if="!error || response" class="insight-panel performance-stage">
       <header>
         <div>
           <p class="panel-kicker">Percentile history</p>
@@ -216,7 +330,55 @@ const emptyDescription = computed(() =>
 </template>
 
 <style scoped>
+.threshold-band {
+  position: relative;
+  height: 7px;
+  border-radius: 8px;
+  background: linear-gradient(
+    to right,
+    var(--vital-good) 0 33.33%,
+    var(--vital-watch) 33.33% 66.66%,
+    var(--vital-poor) 66.66% 100%
+  );
+  margin: 10px 4px;
+}
+.threshold-band i {
+  position: absolute;
+  top: -4px;
+  height: 15px;
+  width: 3px;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-elevated);
+}
+.vital-card .threshold-label,
+.vital-card .vital-description {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
 .insights-stack {
+  --vital-good: var(--owleye-lime);
+  --vital-watch: var(--owleye-violet);
+  --vital-poor: var(--owleye-coral);
+  --vital-good-fill: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vital-good), var(--bg-elevated) 18%),
+    var(--vital-good)
+  );
+  --vital-watch-fill: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vital-watch), var(--bg-elevated) 18%),
+    var(--vital-watch)
+  );
+  --vital-poor-fill: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--vital-poor), var(--bg-elevated) 18%),
+    var(--vital-poor)
+  );
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
   display: grid;
@@ -316,10 +478,10 @@ select {
   text-transform: capitalize;
 }
 .vital-card.good > span {
-  color: var(--success-700);
+  color: var(--accent-text-safe);
 }
 .vital-card.needs_improvement > span {
-  color: var(--warning-700);
+  color: var(--chart-4);
 }
 .vital-card.poor > span {
   color: var(--error-700);
@@ -397,6 +559,36 @@ select {
   padding: 11px 13px;
   font-size: 0.72rem;
   white-space: pre;
+}
+.vital-distribution {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  margin: 14px 0;
+  background: var(--bg-accent-subtle);
+}
+.vital-distribution span {
+  min-width: 0;
+}
+.distribution-labels li::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  border-radius: 3px;
+  background: var(--band-fill);
+}
+.distribution-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 @media (max-width: 920px) {
   .vitals-grid {

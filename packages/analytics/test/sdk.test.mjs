@@ -524,14 +524,13 @@ test("tracks hash navigation once and exposes query/hash only by explicit opt-in
   );
 });
 
-test("can opt into bounded campaign parameters without exposing arbitrary query data", async () => {
+test("automatically captures bounded campaigns without exposing arbitrary query data", async () => {
   installBrowser(
     "https://app.example/pricing?utm_source=newsletter&email=secret%40example.com&utm_medium=email&utm_campaign=launch-week#private",
   );
   const requests = captureRequests();
   const { useAnalytics } = await analyticsModule;
   const analytics = useAnalytics("site_test", {
-    captureCampaigns: true,
     server: "https://api.example",
   });
   analytics.stop();
@@ -550,9 +549,10 @@ test("can opt into bounded campaign parameters without exposing arbitrary query 
   assert.equal(pageView.page.hash, undefined);
 });
 
-test("full query capture takes precedence over campaign-only capture", async () => {
+test("full query capture remains an explicit opt-in alongside automatic campaigns", async () => {
   installBrowser(
     "https://app.example/pricing?utm_source=newsletter&plan=business#private",
+    "https://actual.example/story?q=opted-in",
   );
   const requests = captureRequests();
   const { useAnalytics } = await analyticsModule;
@@ -567,6 +567,178 @@ test("full query capture takes precedence over campaign-only capture", async () 
   const [pageView] = requestEvents(requests.calls);
   assert.equal(pageView.page.search, "?utm_source=newsletter&plan=business");
   assert.equal(pageView.page.hash, undefined);
+  assert.equal(
+    pageView.page.referrer,
+    "https://actual.example/story?q=opted-in",
+  );
+});
+
+test("captures all five tags by default and ignores either legacy campaign flag", async () => {
+  const { useAnalytics } = await analyticsModule;
+  for (const captureCampaigns of [undefined, false, true]) {
+    installBrowser(
+      "https://app.example/?UTM_CONTENT=hero&UTM_TERM=privacy+analytics&utm_campaign=launch-week&utm_medium=Email&utm_source=Newsletter&recipient=private&gclid=unique&fbclid=unique&utm_id=unique#hidden",
+    );
+    const requests = captureRequests();
+    const config = { captureQuery: false, server: "https://api.example" };
+    if (captureCampaigns !== undefined)
+      config.captureCampaigns = captureCampaigns;
+    const controller = useAnalytics(`automatic_${captureCampaigns}`, config);
+    controller.stop();
+    await flush();
+    const [event] = requestEvents(requests.calls);
+    assert.equal(
+      event.page.search,
+      "?utm_source=Newsletter&utm_medium=Email&utm_campaign=launch-week&utm_term=privacy+analytics&utm_content=hero",
+    );
+    assert.equal(event.page.hash, undefined);
+    assert.ok(!event.page.url.includes("recipient="));
+  }
+});
+
+test("uses first campaign occurrences and keeps observed referrers separate", async () => {
+  const { useAnalytics } = await analyticsModule;
+  for (const [i, [query, expected]] of [
+    ["UTM_SOURCE=first&utm_source=second", "?utm_source=first"],
+    ["utm_source=alice%40example.com&utm_source=launch", undefined],
+    ["ref=producthunt&referrer=reddit", undefined],
+  ].entries()) {
+    installBrowser(
+      `https://app.example/?${query}`,
+      "https://actual.example/post?utm_source=referrer-only&email=private%40example.com#secret",
+    );
+    const requests = captureRequests();
+    const controller = useAnalytics(`campaign_occurrence_${i}`);
+    controller.stop();
+    await flush();
+    const [event] = requestEvents(requests.calls);
+    assert.equal(event.page.search, expected);
+    assert.equal(event.page.referrer_host, "actual.example");
+    assert.equal(event.page.referrer, "https://actual.example/post");
+  }
+});
+
+test("omits personal or credential-like campaign values before truncation", async () => {
+  const { useAnalytics } = await analyticsModule;
+  const rejected = [
+    "alice@example.com",
+    "alice%40example.com",
+    "https://example.com/private",
+    "www.example.com",
+    "192.168.1.10",
+    "2001:db8::1",
+    "a27f7f2d-93f6-408c-af23-8ac849cd012e",
+    "recipient_id_1234",
+    "customer1234",
+    "subscriber-id:abcd",
+    "token=abcdef",
+    "session_abc123",
+    "sk_live_abc123",
+    "pk_test_abc123",
+    "Bearer abc123",
+    "skdjfhskdjfhskdjfhskdjfhskdjfhskdjfh",
+    "1234567",
+    "launch\u0001private",
+    "launch\u200bprivate",
+  ];
+  for (let i = 0; i < rejected.length; i++) {
+    installBrowser(
+      `https://app.example/?utm_source=mail&utm_content=${encodeURIComponent(rejected[i])}`,
+    );
+    const requests = captureRequests();
+    const controller = useAnalytics(`sensitive_campaign_${i}`);
+    controller.stop();
+    await flush();
+    assert.equal(
+      requestEvents(requests.calls)[0].page.search,
+      "?utm_source=mail",
+      rejected[i],
+    );
+  }
+});
+
+test("keeps marketing keywords and whole UTF-8 values within the encoded query bound", async () => {
+  installBrowser(
+    `https://app.example/?utm_source=Newsletter&utm_medium=email&utm_campaign=privacy-first-web-product-analytics-launch-2026&utm_term=${encodeURIComponent("検索".repeat(100))}&utm_content=hero_v2`,
+  );
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  const controller = useAnalytics("campaign_utf8");
+  controller.stop();
+  await flush();
+  const query = requestEvents(requests.calls)[0].page.search;
+  const fields = new URLSearchParams(query);
+  assert.equal(
+    fields.get("utm_campaign"),
+    "privacy-first-web-product-analytics-launch-2026",
+  );
+  assert.equal(fields.get("utm_term"), "検索".repeat(33));
+  assert.ok(Buffer.byteLength(fields.get("utm_term"), "utf8") <= 200);
+  assert.ok(Buffer.byteLength(query, "utf8") <= 2048);
+  assert.ok(!query.includes("%EF%BF%BD"));
+});
+
+test("drops whole parameters at the encoded bound and skips oversized query parsing", async () => {
+  const { useAnalytics } = await analyticsModule;
+  for (const [i, query] of [
+    new URLSearchParams(
+      Object.fromEntries(
+        ["source", "medium", "campaign", "term", "content"].map((k) => [
+          `utm_${k}`,
+          "語".repeat(100),
+        ]),
+      ),
+    ).toString(),
+    `utm_source=mail&ignored=${"x".repeat(17000)}`,
+  ].entries()) {
+    installBrowser(`https://app.example/?${query}`);
+    const requests = captureRequests();
+    const controller = useAnalytics(`campaign_query_bound_${i}`);
+    controller.stop();
+    await flush();
+    const captured = requestEvents(requests.calls)[0].page.search;
+    if (i === 1) assert.equal(captured, undefined);
+    else {
+      assert.ok(Buffer.byteLength(captured, "utf8") <= 2048);
+      for (const value of new URLSearchParams(captured).values())
+        assert.equal(value, "語".repeat(66));
+      assert.ok(new URLSearchParams(captured).size < 5);
+    }
+  }
+});
+
+test("SPA campaigns follow the current page without retaining first-touch data", async () => {
+  const browser = installBrowser(
+    "https://app.example/start?utm_source=mail&utm_term=privacy+analytics",
+    "https://actual.example/story",
+  );
+  const requests = captureRequests();
+  const { useAnalytics } = await analyticsModule;
+  const controller = useAnalytics("campaign_spa", {
+    captureCampaigns: false,
+    trackQueryChanges: true,
+  });
+  browser.window.history.pushState(
+    {},
+    "",
+    "/next?utm_source=reddit&utm_content=post",
+  );
+  browser.window.history.pushState({}, "", "/plain?user=secret");
+  controller.stop();
+  await flush();
+  const pages = requestEvents(requests.calls).filter(
+    (e) => e.type === "pageview",
+  );
+  assert.deepEqual(
+    pages.map((e) => e.page.search),
+    [
+      "?utm_source=mail&utm_term=privacy+analytics",
+      "?utm_source=reddit&utm_content=post",
+      undefined,
+    ],
+  );
+  assert.equal(pages[0].page.referrer_host, "actual.example");
+  assert.equal(pages[1].page.referrer, undefined);
 });
 
 test("emits one performance event and merges start and end records", async () => {
@@ -2805,7 +2977,7 @@ test("non-debug delivery cancels acknowledgement bodies without reading them", a
 
 test("full CDN payload collects all event types and shares trackers with separate bundles", async () => {
   const browser = installBrowser(
-    "https://app.example/?utm_source=mail&secret=private",
+    "https://app.example/?utm_source=mail&utm_medium=email&utm_campaign=launch&utm_term=privacy&utm_content=hero&secret=private",
   );
   const requests = captureRequests({
     rules: {
@@ -2823,7 +2995,7 @@ test("full CDN payload collects all event types and shares trackers with separat
   browser.document.currentScript = {
     dataset: {
       owleyeId: "full_cdn",
-      owleyeCaptureCampaigns: "true",
+      owleyeCaptureCampaigns: "false",
       owleyeTrackHashChanges: "true",
     },
   };
@@ -2880,7 +3052,8 @@ test("full CDN payload collects all event types and shares trackers with separat
   assert.ok(
     events.every(
       (e) =>
-        e.page.search === "?utm_source=mail" &&
+        e.page.search ===
+          "?utm_source=mail&utm_medium=email&utm_campaign=launch&utm_term=privacy&utm_content=hero" &&
         !e.page.hash &&
         !e.page.url.includes("private"),
     ),
@@ -2900,7 +3073,12 @@ test("full CDN payload collects all event types and shares trackers with separat
 });
 
 test("full CDN payload respects GPC, mock mode, and the documented page-only autoStart gate", async () => {
-  const browser = installBrowser("https://app.example/", "", "0", true);
+  const browser = installBrowser(
+    "https://app.example/?utm_source=mail&utm_term=privacy",
+    "",
+    "0",
+    true,
+  );
   const requests = captureRequests();
   const load = () =>
     runInThisContext(

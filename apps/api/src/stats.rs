@@ -17,6 +17,10 @@ use crate::{
     AppState,
 };
 
+#[path = "stats_measurement.rs"]
+mod measurement;
+use measurement::{CohortMeasurements, CohortSeriesPoint, MeasurementContext};
+
 const DEFAULT_STATS_DAYS: u16 = 7;
 const MAX_STATS_DAYS: u16 = 365;
 const REGION_SERIES_LIMIT: usize = 5;
@@ -219,6 +223,14 @@ impl StatsRange {
 
 #[derive(Debug, Serialize)]
 pub struct StatsOverviewResponse {
+    measurement: MeasurementContext,
+    cohorts: CohortMeasurements,
+    cohort_timeseries: Vec<CohortSeriesPoint>,
+    entry_pages: Vec<measurement::CohortPage>,
+    last_observed_pages: Vec<measurement::CohortPage>,
+    channels: Vec<DimensionStats>,
+    utm_sources: Vec<DimensionStats>,
+    utm_mediums: Vec<DimensionStats>,
     browsers: Vec<DimensionStats>,
     countries: Vec<DimensionStats>,
     days: u16,
@@ -306,12 +318,17 @@ pub async fn stats_event_names(
         ));
     }
     let site = sites::resolve_site_for_user(&state.sqlite, &session.id, &requested_site_id).await?;
-    Ok(Json(
-        state
-            .clickhouse
-            .query_json_each_row(&event_names_query(&range.filter(&site.tracking_id)))
-            .await?,
-    ))
+    state
+        .clickhouse
+        .with_report_scope(&site.tracking_id, 1, async {
+            Ok(Json(
+                state
+                    .clickhouse
+                    .query_report(&event_names_query(&range.filter(&site.tracking_id)))
+                    .await?,
+            ))
+        })
+        .await
 }
 
 pub async fn stats_overview(
@@ -360,37 +377,87 @@ async fn live_overview_range(
     range: StatsRange,
     interval: &str,
 ) -> Result<StatsOverviewResponse, ApiError> {
-    let queries = LiveStatsQueries::new(&site_id, range, interval);
+    clickhouse
+        .with_report_scope(&site_id, 14, async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                build_live_overview_range(clickhouse, site_id.clone(), range, interval),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(ApiError::ServiceUnavailable(
+                    "The overview exceeded its reporting deadline; retry a shorter range".into(),
+                ))
+            })
+        })
+        .await
+}
 
-    let (
-        totals_rows,
-        timeseries,
-        top_pages,
-        browsers,
-        countries,
-        regions,
-        region_timeseries,
-        operating_systems,
-        devices,
-        referrers,
-        event_names,
-        utm_campaigns,
-    ) = tokio::try_join!(
-        clickhouse.query_json_each_row::<StatsTotals>(&queries.totals),
-        clickhouse.query_json_each_row::<StatsTimeseriesPoint>(&queries.timeseries),
-        clickhouse.query_json_each_row::<TopPageStats>(&queries.top_pages),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.browsers),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.countries),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.regions),
-        clickhouse.query_json_each_row::<RegionTimeseriesPoint>(&queries.region_timeseries),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.operating_systems),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.devices),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.referrers),
-        clickhouse.query_json_each_row::<EventNameStats>(&queries.event_names),
-        clickhouse.query_json_each_row::<DimensionStats>(&queries.utm_campaigns),
+async fn build_live_overview_range(
+    clickhouse: &ClickHouse,
+    site_id: String,
+    range: StatsRange,
+    interval: &str,
+) -> Result<StatsOverviewResponse, ApiError> {
+    let queries = LiveStatsQueries::new(&site_id, range, interval);
+    // Keep at most two admitted subqueries, rather than creating twelve
+    // independent database jobs per navigation. The shared executor runs two.
+    let (totals_rows, timeseries) = tokio::try_join!(
+        clickhouse.query_report::<StatsTotals>(&queries.totals),
+        clickhouse.query_report::<StatsTimeseriesPoint>(&queries.timeseries),
     )?;
+    let (top_pages, browsers) = tokio::try_join!(
+        clickhouse.query_report::<TopPageStats>(&queries.top_pages),
+        clickhouse.query_report::<DimensionStats>(&queries.browsers),
+    )?;
+    let (countries, regions) = tokio::try_join!(
+        clickhouse.query_report::<DimensionStats>(&queries.countries),
+        clickhouse.query_report::<DimensionStats>(&queries.regions),
+    )?;
+    let (region_timeseries, operating_systems) = tokio::try_join!(
+        clickhouse.query_report::<RegionTimeseriesPoint>(&queries.region_timeseries),
+        clickhouse.query_report::<DimensionStats>(&queries.operating_systems),
+    )?;
+    let (devices, referrers) = tokio::try_join!(
+        clickhouse.query_report::<DimensionStats>(&queries.devices),
+        clickhouse.query_report::<DimensionStats>(&queries.referrers),
+    )?;
+    let (event_names, utm_campaigns) = tokio::try_join!(
+        clickhouse.query_report::<EventNameStats>(&queries.event_names),
+        clickhouse.query_report::<DimensionStats>(&queries.utm_campaigns),
+    )?;
+    let as_of = Utc::now().with_nanosecond(0).expect("valid second");
+    let acquisition_filter = range.filter(&site_id);
+    let (cohort_result, acquisition_result) = tokio::join!(
+        measurement::load_cohorts(clickhouse, &site_id, range, interval, as_of),
+        measurement::load_acquisition(clickhouse, &acquisition_filter),
+    );
+    let cohort_data = cohort_result.unwrap_or_else(|_| {
+        tracing::warn!(
+            event = "overview_cohort_report_unavailable",
+            "Additional cohort measurements could not be queried"
+        );
+        measurement::CohortData::unavailable()
+    });
+    let mut context = MeasurementContext::new(as_of, false);
+    let acquisition = acquisition_result.unwrap_or_else(|_| {
+        context.acquisition_status = "query_failed";
+        tracing::warn!(
+            event = "overview_acquisition_report_unavailable",
+            "Additional acquisition measurements could not be queried"
+        );
+        measurement::AcquisitionData::unavailable()
+    });
 
     Ok(StatsOverviewResponse {
+        measurement: context,
+        cohorts: cohort_data.totals,
+        cohort_timeseries: cohort_data.series,
+        entry_pages: cohort_data.entry_pages,
+        last_observed_pages: cohort_data.last_pages,
+        channels: acquisition.channels,
+        utm_sources: acquisition.sources,
+        utm_mediums: acquisition.mediums,
         browsers,
         countries,
         days: range.days(),
@@ -485,6 +552,10 @@ impl LiveStatsQueries {
 // Overview visitors represent people with a pageview in the selected range.
 // Passive beacons and custom-event-only activity belong to their own reports.
 pub(crate) const VISITORS_SQL: &str = "uniqCombined64If(visitor_id, event_type = 'pageview')";
+
+pub(crate) fn acquisition_channel_sql() -> &'static str {
+    measurement::CHANNEL_SQL
+}
 
 fn totals_query(filter: &str) -> String {
     format!(
@@ -649,6 +720,14 @@ fn demo_overview_at(
     let pageviews = totals.pageviews;
 
     StatsOverviewResponse {
+        measurement: MeasurementContext::new(today.and_hms_opt(0, 0, 0).unwrap().and_utc(), true),
+        cohorts: CohortMeasurements::unavailable_demo(),
+        cohort_timeseries: vec![],
+        entry_pages: vec![],
+        last_observed_pages: vec![],
+        channels: vec![],
+        utm_sources: vec![],
+        utm_mediums: vec![],
         browsers: weighted_dimensions(
             pageviews,
             &[
@@ -1022,6 +1101,21 @@ fn public_breakdown_query(filter: &str, dimension: &crate::public_dashboard::Bre
 /// A separate allowlisted response contract. Do not serialize the authenticated
 /// Overview response here: adding a private field must never publish it by default.
 pub(crate) async fn public_overview(
+    clickhouse: &ClickHouse,
+    site_id: &str,
+    days: u16,
+    config: &crate::public_dashboard::ShareConfig,
+) -> Result<serde_json::Value, ApiError> {
+    clickhouse
+        .with_report_scope(
+            site_id,
+            1 + usize::from(config.traffic) + config.breakdowns.len(),
+            public_overview_scoped(clickhouse, site_id, days, config),
+        )
+        .await
+}
+
+async fn public_overview_scoped(
     clickhouse: &ClickHouse,
     site_id: &str,
     days: u16,

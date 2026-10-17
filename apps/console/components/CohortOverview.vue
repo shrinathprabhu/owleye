@@ -10,6 +10,8 @@ import {
   cohortSparkline,
   cohortScaleMaximum,
   cohortValue,
+  cohortInspection,
+  cohortPointerIndex,
   type CohortMetric,
 } from "~/utils/cohortPresentation";
 import { toggleChartMetric } from "~/utils/chartSelection";
@@ -44,6 +46,8 @@ const units: Record<CohortMetric, string> = {
 };
 const showTable = ref(false);
 const chartId = useId();
+const inspectedIndex = ref<number | null>(null);
+const inspectedMetric = ref<CohortMetric | null>(null);
 const rows = computed(() =>
   props.cohorts?.status === "unavailable_in_demo" ||
   props.cohorts?.status === "query_failed"
@@ -54,13 +58,76 @@ const cards = computed(() =>
   cohortMetrics.map((card) => ({
     ...card,
     value: cohortValue(props.cohorts, card.key),
-    spark: cohortSparkline(rows.value, card.key),
-    maximum: cohortScaleMaximum(rows.value, card.key),
   })),
 );
 const selectedCards = computed(() =>
-  cards.value.filter((card) => selected.value.includes(card.key)),
+  cards.value
+    .filter((card) => selected.value.includes(card.key))
+    .map((card) => ({
+      ...card,
+      spark: cohortSparkline(rows.value, card.key),
+      maximum: cohortScaleMaximum(rows.value, card.key),
+    })),
 );
+const inspected = computed(
+  () =>
+    Object.fromEntries(
+      selectedCards.value.map((card) => [
+        card.key,
+        cohortInspection(
+          rows.value,
+          card.key,
+          inspectedIndex.value,
+          card.maximum,
+        ),
+      ]),
+    ) as Partial<Record<CohortMetric, ReturnType<typeof cohortInspection>>>,
+);
+watch(rows, () => {
+  inspectedIndex.value = null;
+  inspectedMetric.value = null;
+});
+function inspectPointer(event: PointerEvent, metric: CohortMetric) {
+  const bounds = (event.currentTarget as SVGSVGElement).getBoundingClientRect();
+  const index = cohortPointerIndex(
+    event.clientX - bounds.left,
+    bounds.width,
+    rows.value.length,
+  );
+  if (index !== undefined) {
+    inspectedIndex.value = index;
+    inspectedMetric.value = metric;
+  }
+}
+function focusChart(metric: CohortMetric) {
+  if (rows.value.length && inspectedIndex.value === null)
+    inspectedIndex.value = 0;
+  inspectedMetric.value = metric;
+}
+function inspectKey(event: KeyboardEvent, metric: CohortMetric) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End", "Escape"].includes(event.key))
+    return;
+  event.preventDefault();
+  if (event.key === "Escape") {
+    inspectedIndex.value = null;
+    return;
+  }
+  if (!rows.value.length) return;
+  const index = inspectedIndex.value ?? 0;
+  inspectedIndex.value =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? rows.value.length - 1
+        : Math.max(
+            0,
+            Math.min(
+              rows.value.length - 1,
+              index + (event.key === "ArrowLeft" ? -1 : 1),
+            ),
+          );
+  inspectedMetric.value = metric;
+}
 const message = computed(() =>
   props.loading && !props.cohorts
     ? "Loading cohort measurements…"
@@ -113,18 +180,6 @@ const message = computed(() =>
       >
         <span>{{ card.label }}</span
         ><strong>{{ cohortMetricText(card.value, card.key) }}</strong>
-        <svg
-          v-if="card.spark.path && !error"
-          class="chart-sparkline"
-          viewBox="0 0 240 60"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-        >
-          <path :d="card.spark.path" />
-        </svg>
-        <span v-else class="cohort-no-spark">{{
-          loading && !cohorts ? "Loading…" : "No available trend"
-        }}</span>
         <small>{{ card.note }}</small>
       </button>
     </div>
@@ -166,7 +221,7 @@ const message = computed(() =>
         >
           <h3>{{ card.label }}</h3>
           <p class="cohort-unit">{{ units[card.key] }}</p>
-          <div v-if="card.spark.path" class="cohort-plot-body">
+          <div v-if="rows.length" class="cohort-plot-body">
             <div class="cohort-y-axis" aria-hidden="true">
               <span>{{ cohortMetricText(card.maximum, card.key) }}</span
               ><span>{{ cohortMetricText(0, card.key) }}</span>
@@ -174,8 +229,17 @@ const message = computed(() =>
             <svg
               viewBox="0 0 240 60"
               preserveAspectRatio="none"
-              role="img"
-              :aria-label="`${card.label}; scale zero to ${cohortMetricText(card.maximum, card.key)}. UTC bucket values and sample counts are in the table below.`"
+              role="group"
+              tabindex="0"
+              :aria-label="`${card.label} interactive chart; scale zero to ${cohortMetricText(card.maximum, card.key)}`"
+              :aria-describedby="`${chartId}-${card.key}-help ${chartId}-${card.key}-value`"
+              @pointermove="
+                $event.pointerType !== 'touch' &&
+                inspectPointer($event, card.key)
+              "
+              @pointerdown="inspectPointer($event, card.key)"
+              @focus="focusChart(card.key)"
+              @keydown="inspectKey($event, card.key)"
             >
               <g class="cohort-grid" aria-hidden="true">
                 <line x1="0" y1="8" x2="240" y2="8" />
@@ -195,6 +259,22 @@ const message = computed(() =>
                 :cy="card.spark.point[1]"
                 r="2"
               />
+              <g v-if="inspected[card.key]" aria-hidden="true">
+                <line
+                  class="cohort-crosshair"
+                  :x1="inspected[card.key]!.x"
+                  :x2="inspected[card.key]!.x"
+                  y1="6"
+                  y2="54"
+                />
+                <circle
+                  v-if="inspected[card.key]!.y !== undefined"
+                  class="cohort-highlight"
+                  :cx="inspected[card.key]!.x"
+                  :cy="inspected[card.key]!.y"
+                  r="2.5"
+                />
+              </g>
             </svg>
           </div>
           <p v-else class="cohort-no-measurements">
@@ -203,6 +283,29 @@ const message = computed(() =>
           <div v-if="rows.length" class="cohort-trend-dates">
             <span>{{ rows[0]?.date }}</span
             ><span>{{ rows.at(-1)?.date }}</span>
+          </div>
+          <p :id="`${chartId}-${card.key}-help`" class="sr-only">
+            Hover or tap to inspect a bucket. When focused, use Left and Right
+            arrows, Home or End. Escape clears the selection. Unknown
+            measurements are unavailable, not zero.
+          </p>
+          <div
+            :id="`${chartId}-${card.key}-value`"
+            class="cohort-inspection"
+            :aria-live="inspectedMetric === card.key ? 'polite' : 'off'"
+            aria-atomic="true"
+          >
+            <template v-if="inspected[card.key]">
+              <span>{{ inspected[card.key]!.date }} · UTC</span>
+              <strong>{{ inspected[card.key]!.text }}</strong>
+              <small
+                >{{ inspected[card.key]!.samples }}
+                {{ inspected[card.key]!.sampleLabel }}</small
+              >
+            </template>
+            <span v-else
+              >Hover, focus or tap the chart to inspect a bucket.</span
+            >
           </div>
         </section>
       </div>
@@ -381,23 +484,9 @@ const message = computed(() =>
   font-size: clamp(1.5rem, 3vw, 2.3rem);
   font-variant-numeric: tabular-nums;
 }
-.cohort-cards small,
-.cohort-no-spark {
+.cohort-cards small {
   color: var(--text-secondary);
   font-size: 0.75rem;
-}
-.cohort-cards svg,
-.cohort-no-spark {
-  height: 48px;
-  width: 100%;
-}
-.cohort-cards path {
-  fill: none;
-  stroke: var(--cohort-color, var(--accent-primary, #4057ff));
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-  stroke-linejoin: round;
-  stroke-linecap: round;
 }
 .cohort-loading-frame {
   min-height: 290px;
@@ -461,6 +550,40 @@ const message = computed(() =>
   width: 100%;
   height: 130px;
   overflow: visible;
+}
+.cohort-plot-body svg:focus-visible {
+  outline: 2px solid var(--owleye-violet);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.cohort-crosshair {
+  stroke: var(--chart-text);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.6;
+}
+.cohort-highlight {
+  stroke: var(--chart-surface-bg, #111214);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.cohort-inspection {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--chart-grid);
+  border-radius: 10px;
+  color: var(--chart-text);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.cohort-inspection strong {
+  color: var(--cohort-color);
+  font-size: 0.92rem;
 }
 .cohort-grid line {
   stroke: var(--chart-grid);

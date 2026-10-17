@@ -25,9 +25,10 @@ export class ReportWarmupQueue {
       this.attempted.has(task.key) ||
       this.queued.size >= 4
     )
-      return;
+      return false;
     this.queued.set(task.key, task);
     this.schedule();
+    return true;
   }
   beginForeground() {
     this.foreground++;
@@ -70,6 +71,10 @@ export class ReportWarmupQueue {
       const generation = this.generation;
       this.active.set(key, controller);
       this.attempted.add(key);
+      // A long-lived console may request fresh annotation snapshots over time.
+      // Bound the once-per-scope bookkeeping as well as the active queue.
+      if (this.attempted.size > 64)
+        this.attempted.delete(this.attempted.values().next().value!);
       // Catch sync failures as well as network rejection; visible routes retry
       // normally and never inherit an invisible warmup error.
       void Promise.resolve()

@@ -112,9 +112,15 @@ const title = computed(
           }"
           aria-hidden="true"
         ></div>
-        <span>{{
-          item.name === "Direct" || !item.name ? "Direct / unknown" : item.name
-        }}</span
+        <span class="acquisition-label"
+          ><ReferrerIcon
+            v-if="selected === 'referrers'"
+            :source="item.name"
+          /><span>{{
+            item.name === "Direct" || !item.name
+              ? "Direct / unknown"
+              : item.name
+          }}</span></span
         ><strong>{{ item.count.toLocaleString() }}</strong>
       </div>
     </div>
@@ -189,7 +195,17 @@ const title = computed(
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.acquisition-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.acquisition-label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .acquisition-row strong {
+  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
 </style>

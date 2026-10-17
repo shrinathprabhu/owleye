@@ -6,12 +6,22 @@ import {
   DataZoomComponent,
   GridComponent,
   LegendComponent,
+  MarkPointComponent,
 } from "echarts/components";
 import { SVGRenderer } from "echarts/renderers";
 import { toggleChartMetric } from "../utils/chartSelection.ts";
 import { chartSnapshot } from "../utils/chartSnapshot.ts";
-import { chartWidgetSvg, type SnapshotMetric } from "../utils/metricWidget.ts";
-import { chartLineShape, chartLineStroke } from "../utils/chartTheme.ts";
+import {
+  chartWidgetSvg,
+  isSnapshotPngDataUrl,
+  type SnapshotMetric,
+} from "../utils/metricWidget.ts";
+import {
+  chartLineShape,
+  chartLineStroke,
+  chartPlotGrid,
+  chartZoom,
+} from "../utils/chartTheme.ts";
 
 const keys = ["pageviews", "visitors", "events"] as const;
 const series = [
@@ -69,6 +79,7 @@ use([
   GridComponent,
   LegendComponent,
   DataZoomComponent,
+  MarkPointComponent,
   SVGRenderer,
 ]);
 
@@ -298,4 +309,356 @@ test("an in-flight lazy export keeps the selection captured before later chart u
   } finally {
     chart.dispose();
   }
+});
+
+const tinyPng =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmfQAAAAASUVORK5CYII=";
+function widgetWithSvg(svg: string) {
+  return chartWidgetSvg({
+    chart: { svg, width: 400, height: 300 },
+    metrics: [series[0]],
+    period: "UTC",
+    site: "Example",
+  });
+}
+function imageChart(symbol: string) {
+  const chart = init(null, undefined, {
+    renderer: "svg",
+    ssr: true,
+    width: 400,
+    height: 300,
+  });
+  chart.setOption({
+    animation: false,
+    xAxis: { type: "category", data: ["A", "B"] },
+    yAxis: {},
+    series: [
+      {
+        type: "line",
+        data: [10, 20],
+        markPoint: {
+          symbol: `image://${symbol}`,
+          symbolSize: 28,
+          data: [{ coord: ["A", 10] }, { coord: ["B", 20] }],
+        },
+      },
+    ],
+  });
+  return chart;
+}
+
+test("static widget accepts only bounded inline PNG icons, rejecting remote sources, hostile attributes and disguised image data", () => {
+  assert.equal(isSnapshotPngDataUrl(tinyPng), true);
+  for (const attribute of ["href", "xlink:href"]) {
+    const widget = widgetWithSvg(
+      `<svg><image ${attribute}="${tinyPng}" width="2" height="2" x="-1" y="-1" transform="matrix(14,0,0,14,100,50)"/></svg>`,
+    );
+    assert.ok(widget.svg.includes(tinyPng));
+    assert.doesNotMatch(widget.svg, /https?:\/\/(?!www\.w3\.org\/)/);
+  }
+  const oversized = Buffer.from(tinyPng.split(",")[1]!, "base64");
+  oversized.writeUInt32BE(4096, 16);
+  const invalidPng = `data:image/png;base64,${oversized.toString("base64")}`;
+  for (const href of [
+    "https://attacker.example/track.png",
+    "//attacker.example/track.png",
+    "/referrer-icons/google.ico",
+    "data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9ImFsZXJ0KDEpIj48L3N2Zz4=",
+    "data:image/png;base64,PHN2Zy8+",
+    invalidPng,
+    tinyPng + "A".repeat(17000),
+    tinyPng.replace("base64,", "base64,\n"),
+  ])
+    assert.throws(() => widgetWithSvg(`<svg><image href="${href}"/></svg>`));
+  for (const attributes of [
+    `href="${tinyPng}" onload="alert(1)"`,
+    `href="${tinyPng}" href="https://attacker.example"`,
+    `href="${tinyPng}" xlink:href="${tinyPng}"`,
+    `href="${tinyPng}" style="background:url(https://attacker.example)"`,
+    `href="${tinyPng}" width="9999"`,
+    `href="${tinyPng}" transform="scale(9999)"`,
+    `href="${tinyPng}" xmlns="http://www.w3.org/1999/xhtml"`,
+  ])
+    assert.throws(() => widgetWithSvg(`<svg><image ${attributes}/></svg>`));
+  for (const content of [
+    '<use href="#unapproved"/>',
+    '<g src="https://attacker.example"/>',
+    '<style>@import "https://attacker.example";</style>',
+    '<path fill="url(https://attacker.example)"/>',
+    '<animate attributeName="href" to="https://attacker.example"/>',
+    "<svg:script>alert(1)</svg:script>",
+    '<!DOCTYPE svg [<!ENTITY x SYSTEM "https://attacker.example">]>',
+  ])
+    assert.throws(() => widgetWithSvg(`<svg>${content}</svg>`));
+  assert.throws(() =>
+    widgetWithSvg(`<svg>${`<image href="${tinyPng}"/>`.repeat(33)}</svg>`),
+  );
+});
+
+test("ECharts source markpoint PNGs survive the captured chart and all widget formats without remote URLs", async () => {
+  const chart = imageChart(tinyPng);
+  try {
+    const snapshot = await chartSnapshot(chart);
+    assert.equal((snapshot.svg.match(/<image\b/g) ?? []).length, 2);
+    assert.ok(snapshot.svg.includes(tinyPng));
+    const widget = widgetWithSvg(snapshot.svg);
+    assert.ok(widget.svg.includes(tinyPng));
+    assert.doesNotMatch(widget.svg, /https?:\/\/(?!www\.w3\.org\/)/);
+  } finally {
+    chart.dispose();
+  }
+});
+
+test("export rasterizes each allowlisted same-origin icon once at 32px and never requests arbitrary icon paths", async () => {
+  const previousImage = Object.getOwnPropertyDescriptor(globalThis, "Image");
+  const previousDocument = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "document",
+  );
+  const requested: string[] = [],
+    canvases: { width: number; height: number }[] = [],
+    draws: number[][] = [];
+  class StubImage {
+    naturalWidth = 64;
+    naturalHeight = 128;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    referrerPolicy = "";
+    set src(value: string) {
+      requested.push(value);
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  Object.defineProperty(globalThis, "Image", {
+    configurable: true,
+    value: StubImage,
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      location: { origin: "https://console.example" },
+      createElement(tag: string) {
+        assert.equal(tag, "canvas");
+        const canvas = {
+          width: 0,
+          height: 0,
+          getContext: () => ({
+            drawImage(_image: unknown, ...coordinates: number[]) {
+              draws.push(coordinates);
+            },
+          }),
+          toDataURL: () => tinyPng,
+        };
+        canvases.push(canvas);
+        return canvas;
+      },
+    },
+  });
+  try {
+    const chart = imageChart("/referrer-icons/google.ico");
+    try {
+      const snapshot = await chartSnapshot(chart);
+      assert.deepEqual(requested, [
+        "https://console.example/referrer-icons/google.ico",
+      ]);
+      assert.equal(
+        canvases.length,
+        1,
+        "two marks reuse one icon rasterization",
+      );
+      assert.deepEqual([canvases[0]!.width, canvases[0]!.height], [32, 32]);
+      assert.deepEqual(
+        draws,
+        [[8, 0, 16, 32]],
+        "rasterization keeps the aspect ratio",
+      );
+      assert.ok(widgetWithSvg(snapshot.svg).svg.includes(tinyPng));
+      assert.doesNotMatch(snapshot.svg, /\/referrer-icons\//);
+    } finally {
+      chart.dispose();
+    }
+    for (const path of [
+      "https://attacker.example/pixel",
+      "//attacker.example/pixel",
+      "/referrer-icons/unknown.ico",
+      "/referrer-icons/../pixel",
+      "/referrer-icons/google.ico?pixel=1",
+    ]) {
+      const invalid = imageChart(path);
+      try {
+        await assert.rejects(
+          chartSnapshot(invalid),
+          /Only bundled source icons/,
+        );
+      } finally {
+        invalid.dispose();
+      }
+    }
+    assert.equal(
+      requested.length,
+      1,
+      "rejected sources never trigger an image request",
+    );
+  } finally {
+    if (previousImage)
+      Object.defineProperty(globalThis, "Image", previousImage);
+    else Reflect.deleteProperty(globalThis, "Image");
+    if (previousDocument)
+      Object.defineProperty(globalThis, "document", previousDocument);
+    else Reflect.deleteProperty(globalThis, "document");
+  }
+});
+
+test("an unavailable bundled icon falls back to a local vector badge without breaking export", async () => {
+  const chart = imageChart("/referrer-icons/google.ico");
+  try {
+    const snapshot = await chartSnapshot(chart);
+    assert.doesNotMatch(snapshot.svg, /<image|href=/);
+    assert.match(snapshot.svg, /rx="\.45" fill="#a391ff"/);
+    assert.doesNotThrow(() => widgetWithSvg(snapshot.svg));
+  } finally {
+    chart.dispose();
+  }
+});
+
+test("the actual traffic glow, layered source badges, dashed partial series and navigator export together", async () => {
+  const theme = {
+    axis: "#8f887d",
+    grid: "#353638",
+    text: "#c4c5c0",
+    tooltipBg: "#111214",
+    tooltipText: "#f7f7f2",
+    surface: "#111214",
+    series: series.map((item) => item.color),
+  };
+  const dates = [
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+  ];
+  const chart = init(null, undefined, {
+    renderer: "svg",
+    ssr: true,
+    width: 960,
+    height: 400,
+  });
+  try {
+    chart.setOption({
+      animation: false,
+      grid: chartPlotGrid(true),
+      dataZoom: chartZoom(dates.length, theme),
+      xAxis: { type: "category", boundaryGap: false, data: dates },
+      yAxis: { type: "value" },
+      series: series.flatMap((item) => {
+        const base = {
+          ...chartLineShape,
+          emphasis: { focus: "series" },
+          showSymbol: false,
+          symbol: "circle",
+          symbolSize: 8,
+          type: "line",
+          itemStyle: { color: item.color },
+          lineStyle: {
+            ...chartLineStroke,
+            color: item.color,
+            shadowBlur: item.key === "pageviews" ? 14 : 10,
+            shadowColor: item.color,
+            width: item.key === "pageviews" ? 3.25 : 2.75,
+          },
+          name: item.label,
+        };
+        return [
+          {
+            ...base,
+            id: `traffic-${item.key}`,
+            data: item.data.map((value, index) =>
+              index === dates.length - 1 ? null : value,
+            ),
+            ...(item.key === "pageviews"
+              ? {
+                  markPoint: {
+                    symbolSize: 24,
+                    symbolOffset: [0, -20],
+                    label: { show: false },
+                    data: [
+                      {
+                        name: dates[2],
+                        coord: [dates[2], item.data[2]],
+                        symbol: "circle",
+                        symbolSize: 30,
+                        itemStyle: {
+                          color: "#fffef9",
+                          borderColor: item.color,
+                          borderWidth: 2,
+                        },
+                      },
+                      {
+                        name: dates[2],
+                        coord: [dates[2], item.data[2]],
+                        symbol: `image://${tinyPng}`,
+                        symbolSize: 20,
+                      },
+                    ],
+                  },
+                }
+              : {}),
+          },
+          {
+            ...base,
+            id: `traffic-${item.key}-partial`,
+            lineStyle: { ...base.lineStyle, type: "dashed", shadowBlur: 0 },
+            data: item.data.map((value, index) =>
+              index >= dates.length - 2 ? value : null,
+            ),
+          },
+        ];
+      }),
+    } as EChartsCoreOption);
+    const snapshot = await chartSnapshot(chart);
+    assert.match(snapshot.svg, /<filter\b/);
+    assert.match(snapshot.svg, /<feDropShadow[^>]*stdDeviation="7 7"/);
+    assert.match(snapshot.svg, /<feDropShadow[^>]*stdDeviation="5 5"/);
+    assert.match(snapshot.svg, /stroke-dasharray=/);
+    assert.match(snapshot.svg, /fill="#fffef9"/);
+    assert.ok(snapshot.svg.includes(tinyPng));
+    assert.doesNotMatch(snapshot.svg, /<style\b/);
+    assert.doesNotThrow(() =>
+      chartWidgetSvg({
+        chart: snapshot,
+        metrics: series,
+        period: "Last 5 days UTC · current period partial",
+        site: "Example",
+      }),
+    );
+    assert.deepEqual(
+      (chart.getOption().series as { data: unknown[] }[])[1]!.data,
+      [null, null, null, 40, 20],
+    );
+  } finally {
+    chart.dispose();
+  }
+});
+
+test("traffic shadow support rejects image filters, remote paint and unbounded blur or filter regions", () => {
+  const safe =
+    '<filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feDropShadow dx="0" dy="0" stdDeviation="7 7" flood-color="#d8ff52" flood-opacity="1"/></filter>';
+  assert.doesNotThrow(() =>
+    widgetWithSvg(
+      `<svg><defs>${safe}</defs><path filter="url(#glow)" d="M0 0L10 10"/></svg>`,
+    ),
+  );
+  for (const content of [
+    safe.replace('stdDeviation="7 7"', 'stdDeviation="70000 70000"'),
+    safe.replace('width="300%"', 'width="999999%"'),
+    safe.replace('flood-opacity="1"', 'flood-opacity="-1"'),
+    safe.replace(
+      'flood-color="#d8ff52"',
+      'flood-color="url(https://attacker.example)"',
+    ),
+    safe.replace('dx="0"', 'href="https://attacker.example" dx="0"'),
+    '<filter id="glow"><feImage href="https://attacker.example"/></filter>',
+  ])
+    assert.throws(() => widgetWithSvg(`<svg><defs>${content}</defs></svg>`));
 });

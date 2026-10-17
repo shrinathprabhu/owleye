@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChartSnapshot } from "~/utils/chartSnapshot";
+import type { TrafficChartSnapshot } from "~/utils/chartSnapshot";
 import type { SnapshotMetric } from "~/utils/metricWidget";
 import { eventLabel } from "~/utils/eventLabel";
 import {
@@ -42,7 +42,7 @@ const trafficMetrics = ref<OverviewMetric[]>([
   "events",
 ]);
 const trafficChart = ref<{
-  captureSnapshot: () => Promise<ChartSnapshot>;
+  captureSnapshot: () => Promise<TrafficChartSnapshot>;
 } | null>(null);
 const snapshotMetrics = computed<SnapshotMetric[]>(() => {
   if (!hasLoadedSite.value || !stats.value) return [];
@@ -404,7 +404,6 @@ function metric(value: number | undefined, suffix = "") {
 
       <OverviewMetricCards
         v-model="trafficMetrics"
-        :points="stats?.timeseries ?? []"
         :totals="hasLoadedSite ? stats?.totals : undefined"
         :caption="rangeMetricCaption"
         :loading="statsPending"
@@ -451,6 +450,7 @@ function metric(value: number | undefined, suffix = "") {
             :loading="statsPending"
             :points="stats?.timeseries ?? []"
             :metrics="trafficMetrics"
+            :as-of="stats?.measurement?.as_of"
             :interval="stats?.interval ?? 'day'"
             :range-key="
               stats

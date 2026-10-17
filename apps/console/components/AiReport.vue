@@ -224,7 +224,15 @@ async function download() {
           </thead>
           <tbody>
             <tr v-for="row in evidence.rows" :key="row.label">
-              <th scope="row">{{ reportLabel(row.label, evidence.report) }}</th>
+              <th scope="row">
+                <span
+                  :class="{ 'referrer-cell': evidence.report === 'referrer' }"
+                  ><ReferrerIcon
+                    v-if="evidence.report === 'referrer'"
+                    :source="row.label"
+                  />{{ reportLabel(row.label, evidence.report) }}</span
+                >
+              </th>
               <td v-if="evidence.report !== 'funnel'">
                 {{ row.events.toLocaleString() }}
               </td>
@@ -246,6 +254,11 @@ async function download() {
   </div>
 </template>
 <style scoped>
+.referrer-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .ai-report {
   min-width: 0;
   width: 100%;

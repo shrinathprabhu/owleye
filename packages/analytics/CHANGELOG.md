@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.3 (prepared, unpublished)
+## 1.0.3
 
 ### Automatic campaign attribution
 
@@ -9,11 +9,11 @@
 - Reject known personal-looking campaign values and bound accepted values. Arbitrary query/fragment capture remains opt-in. GPC, consent gating, no browser storage, routing, and delivery behavior remain unchanged.
 - Keep strict bundle-size checks, with a 400-byte gzip allowance for the new validation logic (measured CDN increase: 332–352 bytes). No runtime dependencies or additional requests.
 
-### Upgrade and release ordering
+### Upgrade
 
 This patch intentionally changes the default campaign fields collected. Update visitor notices where needed. Deploy the matching API and its additive schema migrations before distributing the SDK. Existing events are not backfilled. Campaign definitions and reports can now distinguish keyword/content variants without summing their distinct visitor counts into campaign totals.
 
-After review, publish from the public repository with `v1.0.3` or `@owleye/analytics@1.0.3`. No release has been published by preparing these changes. The hosted website/Console keep their installable published `1.0.2` dependency pins until npm publication; update both pins and the lockfile after publication, then rebuild/deploy those frontends. Their generated customer snippets already target the prepared release and must be deployed with that release, not before it.
+`@owleye/analytics@1.0.3` is published and is the current npm/CDN installation target. Update existing dependency and CDN pins to `1.0.3`, refresh the application's lockfile where applicable, and rebuild/redeploy the integration. Publication does not automatically upgrade existing installations. Deploy the matching API and additive migrations before upgrading an integration so the new keyword/content fields can be recorded and reported.
 
 ## 1.0.2
 

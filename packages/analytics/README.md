@@ -300,7 +300,7 @@ Accepted campaign values are trimmed and limited to 200 UTF-8 bytes each. Known 
 
 Campaign capture is now automatic in every entrypoint. Remove the old `captureCampaigns` option and `data-owleye-capture-campaigns` attribute: they no longer change collection, including when set to `false`. A deprecated no-op TypeScript field remains so existing integrations compile. Review your visitor notice before upgrading. Full query/fragment capture and GPC defaults have not changed. Upgrade the API before installing this SDK; self-hosted APIs need the additive attribution schema and parser changes. Older stored events cannot gain attribution they never captured.
 
-Version-pinned 1.0.3 npm/CDN URLs become available only after the release is published. See the [changelog](./CHANGELOG.md) for release ordering.
+Version-pinned 1.0.3 npm/CDN URLs are published. Update existing pins and rebuild/redeploy the integration to use them; existing installations do not upgrade automatically. See the [changelog](./CHANGELOG.md) for upgrade guidance.
 
 ## Config
 

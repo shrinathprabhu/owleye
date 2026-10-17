@@ -160,7 +160,7 @@ Before publishing a GitHub release:
    - Environment: `npm-publish`
    - Allowed actions: **allow direct `npm publish`**, not only staged publishing.
 3. Create the matching GitHub environment `npm-publish`. Any environment tag restrictions must allow the release tag; approve the job if required reviewers are configured. This workflow needs no npm token secret.
-4. Use an unused package version. The SDK release tag is `v1.0.3` (also accepted: `@owleye/analytics@1.0.3`) and must match `packages/analytics/package.json`. For subsequent releases, bump that manifest before committing and tagging. Published npm versions cannot be overwritten, including after a README edit.
+4. Use an unused package version. SDK 1.0.3 is already published; its release tag is `v1.0.3` (also accepted: `@owleye/analytics@1.0.3`). For a future release, bump `packages/analytics/package.json` to an unused version before committing and tagging; the tag must match that new version. Published npm versions cannot be overwritten, including after a README edit.
 5. Publish the GitHub release; a draft or a tag push alone does not trigger this workflow. It builds, tests, checks bundle sizes and package contents, then publishes from the SDK directory. Prereleases use npm's `next` tag; other releases use `latest`.
 6. Check the successful Actions run, then the npm package version, SDK README, source link and provenance attestation. Confirm all three versioned CDN files become available; CDN caches can take time to update. A failed run before publishing can be rerun after fixing configuration. Check npm first if the publish outcome is uncertain; a successful version must not be republished.
 

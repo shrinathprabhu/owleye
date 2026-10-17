@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { chartWidgetSvg, type SnapshotMetric } from "~/utils/metricWidget";
-import type { ChartSnapshot } from "~/utils/chartSnapshot";
+import type { TrafficChartSnapshot } from "~/utils/chartSnapshot";
 const props = defineProps<{
   metrics: SnapshotMetric[];
-  capture: () => Promise<ChartSnapshot>;
+  capture: () => Promise<TrafficChartSnapshot>;
   period: string;
   site: string;
   disabled?: boolean;

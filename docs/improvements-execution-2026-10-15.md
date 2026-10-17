@@ -1,6 +1,6 @@
 # OwlEye self-hosted improvements: implementation and review record
 
-> 16 October update: the newly authorized SDK 1.0.3 release supersedes this document's opt-in three-tag campaign policy and earlier no-SDK-release assessment. Five bounded UTMs are automatic; arbitrary query/fragment capture remains opt-in. See `packages/analytics/CHANGELOG.md`.
+> 16 October publication update: SDK 1.0.3 is published and is the current npm/CDN installation target. This supersedes the historical 1.0.2/no-release and opt-in three-tag campaign notes below. Five bounded UTMs are automatic; arbitrary query/fragment capture remains opt-in. See `packages/analytics/CHANGELOG.md` and the post-publication steps at the end of this record.
 
 **Date:** 15 October 2026 · **Branch:** `chore/improvements` · **State:** uncommitted.
 
@@ -45,7 +45,7 @@ This follows [the public remaining-improvements plan](remaining-improvements-imp
 
 ## SDK and storage
 
-SDK **1.0.2 remains the published installation target; no SDK release is needed** for these Console/API changes. The unnecessary prepared version bump and changelog entry were removed at the user’s request. Package metadata, install/CDN snippets and coding-assistant instructions target 1.0.2; runtime source, collection defaults, public APIs, payloads, dependencies and byte budgets remain unchanged. No tag, commit, publication or frontend dependency/lockfile upgrade is needed.
+At the 15 October UI-only checkpoint, SDK **1.0.2 remained the published installation target and no new SDK release was needed** for those Console/API changes. The unnecessary prepared version bump and changelog entry were removed at the user’s request. Package metadata, install/CDN snippets and coding-assistant instructions targeted 1.0.2; SDK runtime source, collection defaults, public APIs, payloads, dependencies and byte budgets were unchanged in that checkpoint. It did not require a new tag, publication or frontend dependency upgrade. The 16 October SDK release supersedes this historical assessment.
 
 No new public control-plane tables or ClickHouse fact columns are needed for this shared core. Private workspace/security migrations are not copied into self-hosted. Resource limits are operational safeguards rather than pricing restrictions.
 
@@ -64,7 +64,7 @@ Node 26.2.0 and existing installed dependencies were used. This implementation r
 | Gate | Result |
 | --- | --- |
 | Final Console tests / typecheck / production build | 79 tests passed; typecheck passed; static build passed for 20 routes after the final screenshot/area-fill changes. |
-| SDK tests / size / release inspection | Rebuilt 1.0.2: 72 tests passed; unchanged byte budgets, matching-tag release check and local package dry-run passed. No new SDK release is required. |
+| SDK tests / size / release inspection | Rebuilt 1.0.2: 72 tests passed; unchanged byte budgets, matching-tag release check and local package dry-run passed. No new SDK release was required for this historical UI-only checkpoint. |
 | Rust formatting / strict clippy | Passed workspace formatting and all-target clippy with warnings denied. |
 | Rust workspace tests | 175 passed; 26 opt-in tests ignored. |
 | Final explicit ClickHouse fixtures | 14 selected fixtures passed, covering bounded readers, populations/cohorts/channels, coherent funnel attempts and actual vital samples/privacy. Earlier targeted module runs are in the logs. |
@@ -95,7 +95,7 @@ Screenshots under `/tmp/owleye-ui-review-20261015/`: `public-profile-fixed.png`,
 
 ### SDK version correction and final rebuild
 
-At the user's request, the unnecessary prepared SDK bump was removed. The manifest and changelog match the existing 1.0.2 baseline; README/install/CDN examples, assistant prompts and their assertions target published 1.0.2. SDK runtime sources, dependencies, lockfiles and byte budgets are unchanged. No package publication, release tag or dependency upgrade is required for this Console/API work.
+At the user's request, the unnecessary prepared SDK bump was removed at the 15 October UI-only checkpoint. The manifest and changelog matched the existing 1.0.2 baseline; README/install/CDN examples, assistant prompts and their assertions targeted published 1.0.2. SDK runtime sources, dependencies, lockfiles and byte budgets were unchanged in that correction. No package publication, release tag or dependency upgrade was required for that Console/API-only work. The separately authorized 16 October SDK change supersedes this version guidance.
 
 Fresh local validation after that correction passed: **72 SDK tests**, all existing size budgets, `RELEASE_TAG=v1.0.2 node scripts/check-sdk-release.mjs`, local `npm pack --dry-run --ignore-scripts`, **79 Console tests**, typecheck and the 20-route production static build. Built SDK integrity metadata reports 1.0.2; regenerated Console assets contain the 1.0.2 install/reference targets. The existing synthetic preview at 6175 serves this rebuilt output and remains available for review after reload.
 
@@ -103,7 +103,7 @@ Logs: `/tmp/owleye-public-sdk-102-revert-test.log`, `-size.log`, `-release.log` 
 
 ## 16 October: automatic campaigns and compact funnels
 
-The newly authorized SDK **1.0.3** patch supersedes the earlier no-release assessment for UI-only work. This update is implemented in both sibling repositories; it is not committed, tagged, published, or deployed.
+The SDK **1.0.3** patch supersedes the earlier no-release assessment for UI-only work and is implemented in both sibling repositories. The implementation and local verification below were recorded before publication; SDK 1.0.3 has since been published. See the post-publication steps below for current consumer guidance. This record does not establish deployment status.
 
 - Core, rules, performance, and full SDK builds automatically capture only the five bounded UTM fields: source, medium, campaign, term, and content. No campaign enablement option is needed. Legacy `captureCampaigns` flags/attributes are ignored, including `false`; a deprecated no-op TypeScript field keeps existing source compatible. This deliberately changes the collection default.
 - Arbitrary query/fragment capture remains an explicit opt-in. GPC and consent gating remain unchanged. Automatic capture uses bounded work, UTF-8 limits, first-key precedence, and recognizable sensitive-value checks; these checks do not make arbitrary user text safe. There is no campaign browser storage or persistent first-touch attribution.
@@ -124,18 +124,19 @@ The newly authorized SDK **1.0.3** patch supersedes the earlier no-release asses
 | Rust workspace tests | 181 API tests passed; existing opt-in tests are separate |
 | Strict workspace Clippy / rustfmt | Passed in both repos |
 | ClickHouse integration / local counting | 27 passed; isolated official 26.6.2.81 server and synthetic fixtures |
-| SDK release metadata / package inspection | Both source version checks and public npm pack dry-run passed for 1.0.3; no publication |
+| SDK release metadata / package inspection | Both source version checks and public npm pack dry-run passed for 1.0.3; these local checks did not themselves publish the package |
 | Rendered verification | Both Console compact funnels and campaign forms/reports checked with synthetic local data; 390 px mobile funnel has no page overflow |
 | Repository diff checks | Passed; private frozen install preserved its lockfile, public pre-existing changes preserved |
 
 Private website production/LLM output checks and 37 Worker response checks passed, together with 21 Console Worker response checks. Private supply-chain policy and 44 policy tests passed. Public operations tests passed (6, with its provider/deployment fixture skipped by default). This is local validation, not a claim of a new GitHub CI run, production load test, live provider evaluation, or Docker image validation.
 
-### Release ordering and remaining operations
+### Post-publication status and remaining operations
 
-1. Review and commit the changes manually in both repositories.
-2. Deploy the matching API so startup applies the additive SQLite changes and verifies ClickHouse compatibility columns.
-3. Publish SDK 1.0.3 from the public repository through the existing release workflow after the manual source review.
-4. Update the private website and Console dependency pins from published 1.0.2 to 1.0.3, regenerate the lockfile, and rerun their checks. They intentionally remain installable at 1.0.2 while 1.0.3 is unpublished.
-5. Deploy the updated docs, Console snippets, and hosted frontends with the published SDK. Review visitor notices because campaign collection now happens automatically.
+SDK **1.0.3 is published**. There is no longer a reason to hold consumer pins at 1.0.2 while waiting for npm publication. Existing installations are not upgraded automatically.
 
-No commits, release tags, npm publication, production database operations, or deployments were performed. Deferred URL referral hints are intentionally absent.
+1. Verify the matching API is deployed so startup applies the additive SQLite changes and verifies ClickHouse compatibility columns before integrations are upgraded.
+2. Update consumer dependency/CDN pins to published 1.0.3, refresh their lockfiles, and rebuild/redeploy them. This includes the private website and Console dependency pins. The public Console has no SDK dependency; none is added for this release.
+3. Deploy the current docs and Console snippets with the upgraded integrations. Review visitor notices because campaign collection now happens automatically.
+4. Review and commit any remaining repository changes manually. This documentation follow-up does not stage, commit, publish, or deploy anything.
+
+Earlier statements about no publication describe the local validation runs, not the current release status. No production database operation, frontend deployment, or new remote CI result is established by this follow-up. Deferred URL referral hints are intentionally absent.

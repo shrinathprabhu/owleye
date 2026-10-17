@@ -1,0 +1,253 @@
+{
+  "prepared_at": "2026-10-17",
+  "note": "Fixed public source icons bundled locally. Browsers never query external favicon services or unknown referrer hosts. Brand assets remain the property of their respective owners. Simple Icons SVG sources use CC0.",
+  "icons": [
+    {
+      "id": "google",
+      "file": "google.ico",
+      "source": "https://www.google.com/favicon.ico",
+      "resolved_source": "https://www.google.com/favicon.ico",
+      "bytes": 5430,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "bing",
+      "file": "bing.ico",
+      "source": "https://www.bing.com/favicon.ico",
+      "resolved_source": "https://www.bing.com/favicon.ico",
+      "bytes": 4286,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "duckduckgo",
+      "file": "duckduckgo.ico",
+      "source": "https://duckduckgo.com/favicon.ico",
+      "resolved_source": "https://duckduckgo.com/favicon.ico",
+      "bytes": 2799,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "yahoo",
+      "file": "yahoo.png",
+      "source": "https://www.yahoo.com/favicon.ico",
+      "resolved_source": "https://www.yahoo.com/favicon.ico",
+      "bytes": 664,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "brave",
+      "file": "brave.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/brave.svg",
+      "resolved_source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/brave.svg",
+      "bytes": 2114,
+      "license": "CC0 Simple Icons"
+    },
+    {
+      "id": "chatgpt",
+      "file": "chatgpt.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/13.21.0/icons/openai.svg",
+      "bytes": 1570,
+      "license": "CC0 Simple Icons"
+    },
+    {
+      "id": "claude",
+      "file": "claude.ico",
+      "source": "https://claude.ai/favicon.ico",
+      "resolved_source": "https://claude.ai/favicon.ico",
+      "bytes": 2445,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "gemini",
+      "file": "gemini.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/googlegemini.svg",
+      "resolved_source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/googlegemini.svg",
+      "bytes": 401,
+      "license": "CC0 Simple Icons"
+    },
+    {
+      "id": "perplexity",
+      "file": "perplexity.ico",
+      "source": "https://www.perplexity.ai/favicon.ico",
+      "resolved_source": "https://www.perplexity.ai/favicon.ico",
+      "bytes": 15086,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "x",
+      "file": "x.png",
+      "source": "https://x.com/favicon.ico",
+      "resolved_source": "https://x.com/favicon.ico",
+      "bytes": 549,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "github",
+      "file": "github.ico",
+      "source": "https://github.com/favicon.ico",
+      "resolved_source": "https://github.com/favicon.ico",
+      "bytes": 6518,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "linkedin",
+      "file": "linkedin.ico",
+      "source": "https://www.linkedin.com/favicon.ico",
+      "resolved_source": "https://www.linkedin.com/favicon.ico",
+      "bytes": 24838,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "reddit",
+      "file": "reddit.png",
+      "source": "https://www.reddit.com/favicon.ico",
+      "resolved_source": "https://www.reddit.com/favicon.ico",
+      "bytes": 2441,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "producthunt",
+      "file": "producthunt.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/producthunt.svg",
+      "resolved_source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/producthunt.svg",
+      "bytes": 370,
+      "license": "CC0 Simple Icons"
+    },
+    {
+      "id": "hackernews",
+      "file": "hackernews.ico",
+      "source": "https://news.ycombinator.com/favicon.ico",
+      "resolved_source": "https://news.ycombinator.com/favicon.ico",
+      "bytes": 7527,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "youtube",
+      "file": "youtube.ico",
+      "source": "https://www.youtube.com/favicon.ico",
+      "resolved_source": "https://www.youtube.com/favicon.ico",
+      "bytes": 1150,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "facebook",
+      "file": "facebook.ico",
+      "source": "https://www.facebook.com/favicon.ico",
+      "resolved_source": "https://www.facebook.com/favicon.ico",
+      "bytes": 20366,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "instagram",
+      "file": "instagram.png",
+      "source": "https://www.instagram.com/favicon.ico",
+      "resolved_source": "https://www.instagram.com/favicon.ico",
+      "bytes": 2214,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "threads",
+      "file": "threads.ico",
+      "source": "https://www.threads.net/favicon.ico",
+      "resolved_source": "https://www.threads.com/favicon.ico",
+      "bytes": 32038,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "bluesky",
+      "file": "bluesky.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/bluesky.svg",
+      "resolved_source": "https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/bluesky.svg",
+      "bytes": 565,
+      "license": "CC0 Simple Icons"
+    },
+    {
+      "id": "stackoverflow",
+      "file": "stackoverflow.ico",
+      "source": "https://stackoverflow.com/favicon.ico",
+      "resolved_source": "https://stackoverflow.com/Content/Sites/stackoverflow/Img/favicon.ico?v=562fb39d93c8",
+      "bytes": 7406,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "medium",
+      "file": "medium.ico",
+      "source": "https://medium.com/favicon.ico",
+      "resolved_source": "https://medium.com/favicon.ico",
+      "bytes": 8082,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "substack",
+      "file": "substack.ico",
+      "source": "https://substack.com/favicon.ico",
+      "resolved_source": "https://substackcdn.com/icons/substack/favicon.ico",
+      "bytes": 4286,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "devto",
+      "file": "devto.png",
+      "source": "https://dev.to/favicon.ico",
+      "resolved_source": "https://dev.to/favicon.ico",
+      "bytes": 647,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "indiehackers",
+      "file": "indiehackers.png",
+      "source": "https://www.indiehackers.com/favicon.ico",
+      "resolved_source": "https://www.indiehackers.com/favicon.ico",
+      "bytes": 3592,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "vercel",
+      "file": "vercel.ico",
+      "source": "https://vercel.com/favicon.ico",
+      "resolved_source": "https://vercel.com/favicon.ico",
+      "bytes": 15086,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "netlify",
+      "file": "netlify.ico",
+      "source": "https://www.netlify.com/favicon.ico",
+      "resolved_source": "https://www.netlify.com/favicon/favicon.ico",
+      "bytes": 15086,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "cloudflare",
+      "file": "cloudflare.png",
+      "source": "https://www.cloudflare.com/favicon.ico",
+      "resolved_source": "https://www.cloudflare.com/favicon.ico",
+      "bytes": 908,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "figma",
+      "file": "figma.ico",
+      "source": "https://www.figma.com/favicon.ico",
+      "resolved_source": "https://www.figma.com/favicon.ico",
+      "bytes": 16958,
+      "license": "Source site brand favicon"
+    },
+    {
+      "id": "lowkey",
+      "file": "lowkey.svg",
+      "source": "https://lowkey.tools/favicon.svg",
+      "bytes": 1697,
+      "license": "Project brand favicon",
+      "copied_from_local_project": true
+    },
+    {
+      "id": "owleye",
+      "file": "owleye.svg",
+      "source": "https://owleye.dev/favicon.svg",
+      "bytes": 1247,
+      "license": "Project brand favicon",
+      "copied_from_local_project": true
+    }
+  ]
+}

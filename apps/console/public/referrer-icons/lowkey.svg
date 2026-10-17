@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="lowkey.tools">
+  <defs>
+    <mask id="fv-gear">
+      <rect width="64" height="64" fill="#fff"/>
+      <circle cx="47" cy="22" r="4.2" fill="#000"/>
+    </mask>
+    <mask id="fv-box">
+      <rect width="64" height="64" fill="#fff"/>
+      <rect x="2" y="39" width="60" height="2.6" fill="#000"/>
+    </mask>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="#191b1f"/>
+
+  <g transform="translate(6.4 8) scale(0.8)">
+    <g mask="url(#fv-gear)" fill="#e08a3c">
+      <g transform="translate(47 22) rotate(22.5)">
+        <circle r="10"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(45)"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(90)"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(135)"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(180)"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(225)"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(270)"/>
+        <rect x="-3.2" y="-13.6" width="6.4" height="5.4" rx="1.4" transform="rotate(315)"/>
+      </g>
+    </g>
+    <g fill="none" stroke="#faf9f6" stroke-width="5.4" stroke-linecap="round">
+      <path d="M15.65 12.50A6.6 6.6 0 1 1 8.00 20.15"/>
+      <path d="M17.39 21.89 29.35 33.85"/>
+    </g>
+    <g mask="url(#fv-box)">
+      <rect x="4" y="32" width="56" height="26" rx="6" fill="#faf9f6"/>
+    </g>
+  </g>
+</svg>

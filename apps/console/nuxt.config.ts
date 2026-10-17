@@ -52,6 +52,9 @@ export default defineNuxtConfig({
     },
   },
   routeRules: {
+    "/referrer-icons/**": {
+      headers: { "Cache-Control": "public, max-age=3600, must-revalidate" },
+    },
     "/**": {
       headers: {
         "Cross-Origin-Opener-Policy": "same-origin",

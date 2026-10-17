@@ -97,3 +97,45 @@ export function cohortSparkline(
     .join(" ");
   return { ...spark, area };
 }
+
+/** Nearest recorded bucket on the existing 240-unit SVG, including unknown gaps. */
+export function cohortPointerIndex(x: number, width: number, count: number) {
+  if (!Number.isFinite(x) || !Number.isFinite(width) || width <= 0 || count < 1)
+    return;
+  return count === 1
+    ? 0
+    : Math.round(
+        Math.max(0, Math.min(1, ((x / width) * 240 - 4) / 232)) * (count - 1),
+      );
+}
+
+export function cohortInspection(
+  points: readonly CohortPoint[],
+  metric: CohortMetric,
+  index: number | null,
+  maximum: number,
+) {
+  if (
+    index === null ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= points.length
+  )
+    return;
+  const point = points[index]!;
+  const value = cohortValue(point, metric);
+  const count =
+    metric === "span" ? point.observed_span_samples : point.eligible_cohorts;
+  return {
+    date: point.date,
+    value,
+    text: value === undefined ? "Unavailable" : cohortMetricText(value, metric),
+    samples: finite(count) ? count.toLocaleString() : "Unavailable",
+    sampleLabel: metric === "span" ? "span samples" : "eligible cohorts",
+    x: points.length === 1 ? 120 : 4 + (index / (points.length - 1)) * 232,
+    y:
+      value === undefined
+        ? undefined
+        : 52 - (value / Math.max(1, maximum)) * 44,
+  };
+}

@@ -23,6 +23,7 @@ useHead({
 });
 const route = useRoute();
 const { publicApi } = useApi();
+const trafficReceivedAt = ref("");
 const report = ref<PublicOverview | null>(null);
 const breakdownMetric = ref<BreakdownMetric>("pageviews");
 const metricLabel = computed(() => breakdownLabel(breakdownMetric.value));
@@ -89,6 +90,7 @@ async function load() {
     });
     if (request.signal.aborted) return;
     report.value = response;
+    trafficReceivedAt.value = new Date().toISOString();
     selectedDays.value = response.data.days;
   } catch (cause) {
     if (!request.signal.aborted) {
@@ -189,6 +191,7 @@ async function load() {
             >
           </div>
           <PublicTrafficChart
+            :as-of="trafficReceivedAt"
             :points="report.data.traffic"
             :metrics="metrics"
             :range-key="`${report.data.start_date}:${report.data.end_date}`"

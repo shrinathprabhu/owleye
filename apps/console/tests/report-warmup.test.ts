@@ -115,3 +115,17 @@ test("canceling a visible waiter cannot cancel another consumer of the warmed re
   finish(7);
   assert.equal(await second, 7);
 });
+
+test("long-lived annotation refreshes keep attempted-key bookkeeping bounded", async () => {
+  const queue = new ReportWarmupQueue(0);
+  for (let index = 0; index < 68; index++) {
+    assert.equal(
+      queue.enqueue({ key: String(index), run: async () => {} }),
+      true,
+    );
+    await tick();
+  }
+  assert.equal(queue.enqueue({ key: "67", run: async () => {} }), false);
+  assert.equal(queue.enqueue({ key: "0", run: async () => {} }), true);
+  queue.clear();
+});

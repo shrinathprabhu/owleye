@@ -370,9 +370,15 @@ onBeforeUnmount(() => {
               >
                 {{ item.name }}
               </button>
-              <span v-else>{{
-                key === "countries" ? countryName(item.name) : item.name
-              }}</span
+              <span
+                v-else
+                :class="{ 'live-referrer-label': key === 'referrers' }"
+                ><ReferrerIcon
+                  v-if="key === 'referrers'"
+                  :source="item.name"
+                /><span>{{
+                  key === "countries" ? countryName(item.name) : item.name
+                }}</span></span
               ><strong>{{ item.count.toLocaleString() }}</strong>
             </li>
           </ul>
@@ -528,6 +534,11 @@ li {
 }
 li:last-child {
   border: 0;
+}
+.live-referrer-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 li span,
 .event-name {
